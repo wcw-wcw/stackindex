@@ -47,6 +47,12 @@ Reports are written under the analyzed repository:
 
 Add `.stackmap/` to your project `.gitignore` unless you deliberately want to commit generated reports.
 
+On macOS, Finder hides folders that start with a dot. If you do not see `.stackmap` in Finder, press `Cmd+Shift+.` to toggle hidden files, or open it directly:
+
+```sh
+open /path/to/your/repo/.stackmap
+```
+
 ## Local Storage and Privacy
 
 StackMap is local-first:

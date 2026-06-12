@@ -92,10 +92,18 @@ func analyze(args []string) error {
 		return err
 	}
 	if *noTUI {
-		fmt.Printf("StackMap analysis exported to %s\n", filepath.Join(root, ".stackmap"))
+		printExportSummary(root)
 		return nil
 	}
 	return tui.Run(analysis, root)
+}
+
+func printExportSummary(root string) {
+	outDir := filepath.Join(root, ".stackmap")
+	fmt.Printf("StackMap analysis exported to %s\n", outDir)
+	fmt.Printf("JSON: %s\n", filepath.Join(outDir, "analysis.json"))
+	fmt.Printf("Markdown: %s\n", filepath.Join(outDir, "reports", "repo-report.md"))
+	fmt.Println("Note: .stackmap is a hidden folder on macOS Finder. Press Cmd+Shift+. in Finder to show hidden files.")
 }
 
 func normalizeAnalyzeArgs(args []string) []string {
