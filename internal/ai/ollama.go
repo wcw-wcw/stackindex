@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -22,7 +21,7 @@ const (
 	defaultBaseURL = "http://127.0.0.1:11434"
 	routeLimit     = 40
 	findingLimit   = 20
-	fileLimit      = 30
+	scriptLimit    = 12
 	fieldLimit     = 700
 	itemLimit      = 220
 )
@@ -30,6 +29,11 @@ const (
 const missingSectionFallback = "No AI summary was generated for this section."
 
 var trailingCommaRE = regexp.MustCompile(`,\s*([}\]])`)
+
+const (
+	relevancePassed        = "passed"
+	relevanceLowConfidence = "low_confidence"
+)
 
 type OllamaClient struct {
 	BaseURL string
@@ -41,6 +45,7 @@ type request struct {
 	Model  string `json:"model"`
 	Prompt string `json:"prompt"`
 	Stream bool   `json:"stream"`
+	Format string `json:"format,omitempty"`
 }
 
 type response struct {
@@ -48,19 +53,57 @@ type response struct {
 	Error    string `json:"error,omitempty"`
 }
 
-type CompactInput struct {
-	RepoName          string                    `json:"repoName"`
-	Stack             models.StackInfo          `json:"stack"`
-	FileCounts        map[models.FileKind]int   `json:"fileCounts"`
-	PackageScripts    map[string]string         `json:"packageScripts,omitempty"`
-	Routes            []compactRoute            `json:"routes,omitempty"`
-	RoutesTotal       int                       `json:"routesTotal"`
-	Tests             compactTests              `json:"tests"`
-	Deployment        models.DeploymentAnalysis `json:"deployment"`
-	Env               compactEnv                `json:"env"`
-	Findings          []models.Finding          `json:"findings,omitempty"`
-	FindingsTotal     int                       `json:"findingsTotal"`
-	TopImportantFiles []string                  `json:"topImportantFiles,omitempty"`
+type AIFactsheet struct {
+	RepositoryName      string              `json:"repositoryName"`
+	ScannedPath         string              `json:"scannedPath"`
+	FilesScanned        int                 `json:"filesScanned"`
+	FileCounts          map[string]int      `json:"fileCounts"`
+	FindingCounts       map[string]int      `json:"findingCounts"`
+	DetectedStack       aiDetectedStack     `json:"detectedStack"`
+	HealthSummary       aiHealthSummary     `json:"healthSummary"`
+	PackageScripts      map[string]string   `json:"packageScripts,omitempty"`
+	APIRoutes           []compactRoute      `json:"apiRoutes,omitempty"`
+	APIRoutesTotal      int                 `json:"apiRoutesTotal"`
+	Environment         compactEnv          `json:"environment"`
+	DeploymentReadiness aiDeploymentSummary `json:"deploymentReadiness"`
+	TopFindings         []compactFinding    `json:"topFindings,omitempty"`
+	FindingsTotal       int                 `json:"findingsTotal"`
+}
+
+type aiDetectedStack struct {
+	Languages         []string `json:"languages,omitempty"`
+	Frameworks        []string `json:"frameworks,omitempty"`
+	Databases         []string `json:"databases,omitempty"`
+	TestingFrameworks []string `json:"testingFrameworks,omitempty"`
+	DeploymentTargets []string `json:"deploymentTargets,omitempty"`
+}
+
+type aiHealthSummary struct {
+	StackDetected         bool `json:"stackDetected"`
+	TestsPresent          bool `json:"testsPresent"`
+	HealthEndpointPresent bool `json:"healthEndpointPresent"`
+	EnvExamplePresent     bool `json:"envExamplePresent"`
+	MigrationFilesPresent bool `json:"migrationFilesPresent"`
+	DeploymentDocsPresent bool `json:"deploymentDocsPresent"`
+}
+
+type aiDeploymentSummary struct {
+	HasReadme                bool `json:"hasReadme"`
+	ReadmeMentionsSetup      bool `json:"readmeMentionsSetup"`
+	ReadmeMentionsDeploy     bool `json:"readmeMentionsDeploy"`
+	HasEnvExample            bool `json:"hasEnvExample"`
+	HasDockerfile            bool `json:"hasDockerfile"`
+	HasVercelConfig          bool `json:"hasVercelConfig"`
+	HasHealthEndpoint        bool `json:"hasHealthEndpoint"`
+	HasMigrationFiles        bool `json:"hasMigrationFiles"`
+	ReadmeMentionsMigrations bool `json:"readmeMentionsMigrations"`
+}
+
+type compactFinding struct {
+	Severity       models.Severity `json:"severity"`
+	Category       string          `json:"category"`
+	Message        string          `json:"message"`
+	Recommendation string          `json:"recommendation,omitempty"`
 }
 
 type compactRoute struct {
@@ -81,14 +124,14 @@ type compactTests struct {
 }
 
 type compactEnv struct {
-	UsesEnvVars                bool           `json:"usesEnvVars"`
-	HasExampleFile             bool           `json:"hasExampleFile"`
-	EnvFilePresent             bool           `json:"envFilePresent"`
-	UsedVarCount               int            `json:"usedVarCount"`
-	ExampleVarCount            int            `json:"exampleVarCount"`
-	MissingFromExample         []string       `json:"missingFromExample,omitempty"`
-	MissingRequiredFromExample []string       `json:"missingRequiredFromExample,omitempty"`
-	Classifications            map[string]int `json:"classifications,omitempty"`
+	UsesEnvVars             bool           `json:"usesEnvVars"`
+	HasExampleFile          bool           `json:"hasExampleFile"`
+	EnvFilePresent          bool           `json:"envFilePresent"`
+	UsedVarCount            int            `json:"usedVarCount"`
+	ExampleVarCount         int            `json:"exampleVarCount"`
+	MissingFromExampleCount int            `json:"missingFromExampleCount"`
+	MissingRequiredCount    int            `json:"missingRequiredCount"`
+	Classifications         map[string]int `json:"classifications,omitempty"`
 }
 
 type aiJSONResponse struct {
@@ -124,15 +167,15 @@ func Summarize(ctx context.Context, analysis *models.Analysis, model string) *mo
 		summary.Warning = fmt.Sprintf("AI summary was requested but Ollama failed: %v", err)
 		return summary
 	}
-	applyModelResponse(summary, text)
+	applyModelResponse(summary, text, analysis)
 	if summary.ParseError != "" {
 		refineCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 		refineText, err := client.Generate(refineCtx, refinementPromptFor(analysis, text))
 		if err == nil {
 			refined := &models.AISummary{Enabled: true, Model: model, GeneratedAt: summary.GeneratedAt}
-			applyModelResponse(refined, refineText)
-			if refined.ParseError == "" {
+			applyModelResponse(refined, refineText, analysis)
+			if refined.ParseError == "" && refined.Relevance != relevanceLowConfidence {
 				*summary = *refined
 			}
 		}
@@ -163,7 +206,7 @@ func (c OllamaClient) Generate(ctx context.Context, prompt string) (string, erro
 	if c.Client == nil {
 		c.Client = &http.Client{Timeout: 45 * time.Second}
 	}
-	body, err := json.Marshal(request{Model: c.Model, Prompt: prompt, Stream: false})
+	body, err := json.Marshal(request{Model: c.Model, Prompt: prompt, Stream: false, Format: "json"})
 	if err != nil {
 		return "", err
 	}
@@ -198,23 +241,49 @@ func (c OllamaClient) Generate(ctx context.Context, prompt string) (string, erro
 	return text, nil
 }
 
-func BuildCompactInput(a *models.Analysis) CompactInput {
-	input := CompactInput{
-		RepoName:      a.RepoName,
-		Stack:         a.Stack,
-		FileCounts:    fileCounts(a.Files),
-		RoutesTotal:   len(a.Routes),
-		Tests:         compactTestsFrom(a.Tests),
-		Deployment:    a.Deployment,
-		Env:           compactEnvFrom(a.Env),
-		Findings:      cappedFindings(a.Findings, findingLimit),
+func BuildAIFactsheet(a *models.Analysis) AIFactsheet {
+	input := AIFactsheet{
+		RepositoryName: a.RepoName,
+		ScannedPath:    a.RepoPath,
+		FilesScanned:   len(a.Files),
+		FileCounts:     fileCounts(a.Files),
+		FindingCounts:  findingCounts(a.Findings),
+		DetectedStack: aiDetectedStack{
+			Languages:         append([]string{}, a.Stack.Languages...),
+			Frameworks:        append([]string{}, a.Stack.Frameworks...),
+			Databases:         append([]string{}, a.Stack.Databases...),
+			TestingFrameworks: append([]string{}, a.Stack.Testing...),
+			DeploymentTargets: append([]string{}, a.Stack.Deployment...),
+		},
+		HealthSummary: aiHealthSummary{
+			StackDetected:         stackDetected(a.Stack),
+			TestsPresent:          a.Tests.HasTestFiles || a.Tests.HasTestScript,
+			HealthEndpointPresent: a.Deployment.HasHealthEndpoint,
+			EnvExamplePresent:     a.Deployment.HasEnvExample,
+			MigrationFilesPresent: a.Deployment.HasMigrationFiles,
+			DeploymentDocsPresent: a.Deployment.ReadmeMentionsDeploy,
+		},
+		APIRoutesTotal: len(a.Routes),
+		Environment:    compactEnvFrom(a.Env),
+		DeploymentReadiness: aiDeploymentSummary{
+			HasReadme:                a.Deployment.HasReadme,
+			ReadmeMentionsSetup:      a.Deployment.ReadmeMentionsSetup,
+			ReadmeMentionsDeploy:     a.Deployment.ReadmeMentionsDeploy,
+			HasEnvExample:            a.Deployment.HasEnvExample,
+			HasDockerfile:            a.Deployment.HasDockerfile,
+			HasVercelConfig:          a.Deployment.HasVercelConfig,
+			HasHealthEndpoint:        a.Deployment.HasHealthEndpoint,
+			HasMigrationFiles:        a.Deployment.HasMigrationFiles,
+			ReadmeMentionsMigrations: a.Deployment.ReadmeMentionsMigrations,
+		},
+		TopFindings:   compactFindings(a.Findings, findingLimit),
 		FindingsTotal: len(a.Findings),
 	}
 	if a.PackageInfo != nil {
-		input.PackageScripts = copyStringMap(a.PackageInfo.Scripts)
+		input.PackageScripts = cappedStringMap(a.PackageInfo.Scripts, scriptLimit)
 	}
 	for _, route := range capRoutes(a.Routes, routeLimit) {
-		input.Routes = append(input.Routes, compactRoute{
+		input.APIRoutes = append(input.APIRoutes, compactRoute{
 			Method:     route.Method,
 			Path:       route.Path,
 			SourceFile: route.SourceFile,
@@ -222,16 +291,24 @@ func BuildCompactInput(a *models.Analysis) CompactInput {
 			Note:       route.Note,
 		})
 	}
-	input.TopImportantFiles = importantFiles(a.Files, fileLimit)
 	return input
 }
 
+func BuildCompactInput(a *models.Analysis) AIFactsheet {
+	return BuildAIFactsheet(a)
+}
+
 func promptFor(a *models.Analysis) string {
-	data, _ := json.MarshalIndent(BuildCompactInput(a), "", "  ")
+	data, _ := json.MarshalIndent(BuildAIFactsheet(a), "", "  ")
 	return `You are StackMap, a local-only software engineering documentation assistant.
 
 Return only valid JSON. Do not wrap the response in Markdown. Do not use code fences.
-Use only the provided static analysis data. Do not invent features, services, routes, dependencies, or deployment behavior. Do not claim to have read source files. Keep every value concise and practical.
+You are summarizing the StackMap analysis factsheet below, not answering questions about individual file paths.
+Do not explain Unix paths, source files, package names, or general programming concepts.
+Do not list or define environment variables.
+Use only the provided factsheet. Do not invent features, services, routes, dependencies, or deployment behavior. Do not claim to have read source files. Keep every value concise and practical.
+Mention the detected project type and concrete stack when available, such as languages, frameworks, databases, testing tools, and deployment targets.
+At least one output field must mention an exact detected stack term from the factsheet, for example a language, framework, database, testing tool, or deployment target.
 Fill the fields with concrete content from the analysis. Do not return empty strings. Do not return placeholder values. When the analysis supports it, include 2 to 5 concise string items in each array.
 
 Every field is required. Arrays must contain strings only. Return this exact JSON schema:
@@ -245,23 +322,28 @@ Every field is required. Arrays must contain strings only. Return this exact JSO
 
 Example of valid output:
 {
-  "projectSummary": "This repository is a local-first Go CLI that analyzes codebases and exports JSON and Markdown reports.",
-  "architectureOverview": "The CLI runs deterministic analyzers for stack, routes, tests, environment variables, and deployment readiness, then writes reports.",
-  "keyStrengths": ["Local-only operation", "Deterministic static analysis"],
-  "potentialRisks": ["AI summaries depend on local model output quality"],
-  "recommendedNextSteps": ["Keep generated reports current", "Add tests around important analyzer behavior"]
+  "projectSummary": "shop-demo is a Next.js and React web app with PostgreSQL integration and Vercel deployment signals.",
+  "architectureOverview": "The app uses Next.js routes for HTTP APIs, package scripts for build/test workflows, and deployment readiness checks for env examples and health endpoints.",
+  "keyStrengths": ["Next.js API routes are detected", "PostgreSQL and Vercel are explicitly identified"],
+  "potentialRisks": ["Document any missing required environment variables before deployment"],
+  "recommendedNextSteps": ["Run the detected Vitest test script before release", "Keep Vercel deployment notes current"]
 }
 
-Analysis data:
+StackMap analysis factsheet:
 ` + string(data)
 }
 
 func refinementPromptFor(a *models.Analysis, previous string) string {
-	data, _ := json.MarshalIndent(BuildCompactInput(a), "", "  ")
+	data, _ := json.MarshalIndent(BuildAIFactsheet(a), "", "  ")
 	return `Your previous response could not be parsed as the required StackMap JSON summary.
 
 Return only valid JSON. Do not wrap the response in Markdown. Do not use code fences. Do not include explanations.
-Every field is required. Arrays must contain strings only. Keep values concise. Use only the analysis data below and do not invent details.
+You are summarizing the StackMap analysis factsheet below, not answering questions about individual file paths.
+Do not explain Unix paths, source files, package names, or general programming concepts.
+Do not list or define environment variables.
+Every field is required. Arrays must contain strings only. Keep values concise. Use only the factsheet below and do not invent details.
+Mention the detected project type and concrete stack when available.
+At least one output field must mention an exact detected stack term from the factsheet, for example a language, framework, database, testing tool, or deployment target.
 Fill the fields with concrete content from the analysis. Do not return empty strings. Do not return placeholder values. When the analysis supports it, include 2 to 5 concise string items in each array.
 
 Required schema:
@@ -276,15 +358,16 @@ Required schema:
 Previous invalid response, for context only:
 ` + capText(previous, 1200) + `
 
-Analysis data:
+StackMap analysis factsheet:
 ` + string(data)
 }
 
-func applyModelResponse(summary *models.AISummary, text string) {
+func applyModelResponse(summary *models.AISummary, text string, analysis *models.Analysis) {
 	parsed, err := ParseModelResponse(text)
 	if err != nil {
 		summary.RawText = cleanRawResponse(text)
 		summary.ParseError = err.Error()
+		markRelevance(summary, summary.RawText, analysis)
 		return
 	}
 	summary.ProjectSummary = parsed.ProjectSummary
@@ -292,6 +375,7 @@ func applyModelResponse(summary *models.AISummary, text string) {
 	summary.KeyStrengths = parsed.KeyStrengths
 	summary.PotentialRisks = parsed.PotentialRisks
 	summary.RecommendedNextSteps = parsed.RecommendedNextSteps
+	markRelevance(summary, structuredText(summary), analysis)
 }
 
 func ParseModelResponse(text string) (models.AISummary, error) {
@@ -449,16 +533,108 @@ func cleanRawResponse(text string) string {
 	return capText(text, 3000)
 }
 
-func fileCounts(files []models.FileInfo) map[models.FileKind]int {
-	counts := map[models.FileKind]int{
-		models.FileKindSource: 0,
-		models.FileKindConfig: 0,
-		models.FileKindTest:   0,
-		models.FileKindDoc:    0,
-		models.FileKindOther:  0,
+func markRelevance(summary *models.AISummary, text string, analysis *models.Analysis) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	terms := relevanceTerms(analysis)
+	if len(terms) == 0 {
+		summary.Relevance = relevancePassed
+		summary.RelevanceReason = "No detected stack terms were available for relevance validation."
+		return
+	}
+	matched := matchingTerm(text, terms)
+	if matched == "" {
+		summary.Relevance = relevanceLowConfidence
+		summary.RelevanceReason = "Model output did not mention any detected language, framework, database, testing tool, or deployment target."
+		return
+	}
+	summary.Relevance = relevancePassed
+	summary.RelevanceReason = fmt.Sprintf("Model output mentioned detected stack term %q.", matched)
+}
+
+func structuredText(summary *models.AISummary) string {
+	var parts []string
+	parts = append(parts, summary.ProjectSummary, summary.ArchitectureOverview)
+	parts = append(parts, summary.KeyStrengths...)
+	parts = append(parts, summary.PotentialRisks...)
+	parts = append(parts, summary.RecommendedNextSteps...)
+	return strings.Join(parts, "\n")
+}
+
+func relevanceTerms(a *models.Analysis) []string {
+	if a == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, group := range [][]string{a.Stack.Languages, a.Stack.Frameworks, a.Stack.Databases, a.Stack.Testing, a.Stack.Deployment} {
+		for _, term := range group {
+			term = strings.TrimSpace(term)
+			if term == "" {
+				continue
+			}
+			key := strings.ToLower(term)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, term)
+		}
+	}
+	return out
+}
+
+func matchingTerm(text string, terms []string) string {
+	lower := strings.ToLower(text)
+	for _, term := range terms {
+		if containsTerm(lower, strings.ToLower(term)) {
+			return term
+		}
+	}
+	return ""
+}
+
+func containsTerm(lowerText, lowerTerm string) bool {
+	if lowerTerm == "" {
+		return false
+	}
+	if strings.ContainsAny(lowerTerm, ".#+-/ ") {
+		return strings.Contains(lowerText, lowerTerm)
+	}
+	for _, field := range strings.FieldsFunc(lowerText, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) {
+		if field == lowerTerm {
+			return true
+		}
+	}
+	return false
+}
+
+func fileCounts(files []models.FileInfo) map[string]int {
+	counts := map[string]int{
+		string(models.FileKindSource): 0,
+		string(models.FileKindConfig): 0,
+		string(models.FileKindTest):   0,
+		string(models.FileKindDoc):    0,
+		string(models.FileKindOther):  0,
 	}
 	for _, file := range files {
-		counts[file.Kind]++
+		counts[string(file.Kind)]++
+	}
+	return counts
+}
+
+func findingCounts(findings []models.Finding) map[string]int {
+	counts := map[string]int{
+		string(models.SeverityHigh):   0,
+		string(models.SeverityMedium): 0,
+		string(models.SeverityLow):    0,
+		string(models.SeverityInfo):   0,
+	}
+	for _, finding := range findings {
+		counts[string(finding.Severity)]++
 	}
 	return counts
 }
@@ -476,14 +652,14 @@ func compactTestsFrom(t models.TestAnalysis) compactTests {
 
 func compactEnvFrom(env models.EnvAnalysis) compactEnv {
 	out := compactEnv{
-		UsesEnvVars:                env.UsesEnvVars,
-		HasExampleFile:             env.ExampleFile != "",
-		EnvFilePresent:             env.EnvFilePresent,
-		UsedVarCount:               len(env.UsedVars),
-		ExampleVarCount:            len(env.ExampleVars),
-		MissingFromExample:         append([]string{}, env.MissingFromExample...),
-		MissingRequiredFromExample: append([]string{}, env.MissingRequiredFromExample...),
-		Classifications:            map[string]int{},
+		UsesEnvVars:             env.UsesEnvVars,
+		HasExampleFile:          env.ExampleFile != "",
+		EnvFilePresent:          env.EnvFilePresent,
+		UsedVarCount:            len(env.UsedVars),
+		ExampleVarCount:         len(env.ExampleVars),
+		MissingFromExampleCount: len(env.MissingFromExample),
+		MissingRequiredCount:    len(env.MissingRequiredFromExample),
+		Classifications:         map[string]int{},
 	}
 	for _, envVar := range env.UsedVars {
 		class := envVar.Classification
@@ -494,6 +670,20 @@ func compactEnvFrom(env models.EnvAnalysis) compactEnv {
 	}
 	if len(out.Classifications) == 0 {
 		out.Classifications = nil
+	}
+	return out
+}
+
+func compactFindings(findings []models.Finding, limit int) []compactFinding {
+	capped := cappedFindings(findings, limit)
+	out := make([]compactFinding, 0, len(capped))
+	for _, finding := range capped {
+		out = append(out, compactFinding{
+			Severity:       finding.Severity,
+			Category:       finding.Category,
+			Message:        finding.Message,
+			Recommendation: finding.Recommendation,
+		})
 	}
 	return out
 }
@@ -512,62 +702,37 @@ func cappedFindings(findings []models.Finding, limit int) []models.Finding {
 	return append([]models.Finding{}, findings[:limit]...)
 }
 
-func importantFiles(files []models.FileInfo, limit int) []string {
-	weights := map[models.FileKind]int{
-		models.FileKindConfig: 0,
-		models.FileKindDoc:    1,
-		models.FileKindSource: 2,
-		models.FileKindTest:   3,
-		models.FileKindOther:  4,
-	}
-	candidates := append([]models.FileInfo{}, files...)
-	sort.SliceStable(candidates, func(i, j int) bool {
-		wi := fileWeight(candidates[i], weights)
-		wj := fileWeight(candidates[j], weights)
-		if wi != wj {
-			return wi < wj
-		}
-		if candidates[i].SizeBytes != candidates[j].SizeBytes {
-			return candidates[i].SizeBytes > candidates[j].SizeBytes
-		}
-		return candidates[i].Path < candidates[j].Path
-	})
-	var out []string
-	for _, file := range candidates {
-		if strings.HasPrefix(file.Path, ".env") || strings.Contains(file.Path, "/.env") {
-			continue
-		}
-		out = append(out, file.Path)
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
-}
-
-func fileWeight(file models.FileInfo, weights map[models.FileKind]int) int {
-	base := strings.ToLower(file.Path)
-	switch {
-	case base == "package.json", base == "go.mod", base == "cargo.toml", base == "pyproject.toml":
-		return -5
-	case base == "readme.md":
-		return -4
-	case strings.Contains(base, "dockerfile"), strings.Contains(base, "vercel.json"):
-		return -3
-	}
-	if weight, ok := weights[file.Kind]; ok {
-		return weight
-	}
-	return 9
-}
-
-func copyStringMap(in map[string]string) map[string]string {
+func cappedStringMap(in map[string]string, limit int) map[string]string {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
+	keys := make([]string, 0, len(in))
+	for key := range in {
+		keys = append(keys, key)
+	}
+	sortStrings(keys)
+	if limit > 0 && len(keys) > limit {
+		keys = keys[:limit]
+	}
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		out[key] = capText(in[key], itemLimit)
 	}
 	return out
+}
+
+func stackDetected(stack models.StackInfo) bool {
+	return len(stack.Languages)+len(stack.Frameworks)+len(stack.Libraries)+len(stack.Databases)+len(stack.Testing)+len(stack.Deployment) > 0
+}
+
+func sortStrings(values []string) {
+	for i := 1; i < len(values); i++ {
+		value := values[i]
+		j := i - 1
+		for j >= 0 && values[j] > value {
+			values[j+1] = values[j]
+			j--
+		}
+		values[j+1] = value
+	}
 }

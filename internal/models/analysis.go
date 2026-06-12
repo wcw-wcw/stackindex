@@ -71,6 +71,8 @@ type AISummary struct {
 	RecommendedNextSteps []string  `json:"recommendedNextSteps,omitempty"`
 	RawText              string    `json:"rawText,omitempty"`
 	ParseError           string    `json:"parseError,omitempty"`
+	Relevance            string    `json:"relevance,omitempty"`
+	RelevanceReason      string    `json:"relevanceReason,omitempty"`
 	Warning              string    `json:"warning,omitempty"`
 }
 

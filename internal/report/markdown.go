@@ -149,6 +149,11 @@ func writeAIProjectSummary(b *strings.Builder, ai *models.AISummary) {
 		fmt.Fprintln(b)
 		return
 	}
+	if ai.Relevance == "low_confidence" {
+		fmt.Fprintln(b, "The local model returned text, but it did not appear related to this StackMap analysis.")
+		fmt.Fprintln(b)
+		return
+	}
 	if ai.ParseError != "" || !hasStructuredAISummary(ai) {
 		fmt.Fprintf(b, "AI summary was requested with `%s`, but StackMap could not parse the model response as structured JSON.\n\n", fallbackText(ai.Model, "the selected model"))
 		raw := strings.TrimSpace(ai.RawText)
