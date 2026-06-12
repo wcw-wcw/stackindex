@@ -70,6 +70,7 @@ type AISummary struct {
 	PotentialRisks       []string  `json:"potentialRisks,omitempty"`
 	RecommendedNextSteps []string  `json:"recommendedNextSteps,omitempty"`
 	RawText              string    `json:"rawText,omitempty"`
+	ParseError           string    `json:"parseError,omitempty"`
 	Warning              string    `json:"warning,omitempty"`
 }
 

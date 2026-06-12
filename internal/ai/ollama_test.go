@@ -102,6 +102,114 @@ func TestParseModelResponseValidJSON(t *testing.T) {
 	}
 }
 
+func TestParseModelResponseFencedJSON(t *testing.T) {
+	text := "```json\n" + `{
+		"projectSummary": " Local-first analyzer. ",
+		"architectureOverview": "CLI runs analyzers.",
+		"keyStrengths": [" Deterministic analysis ", ""],
+		"potentialRisks": [],
+		"recommendedNextSteps": ["Add smoke tests"]
+	}` + "\n```"
+
+	summary, err := ParseModelResponse(text)
+	if err != nil {
+		t.Fatalf("ParseModelResponse returned error: %v", err)
+	}
+	if summary.ProjectSummary != "Local-first analyzer." {
+		t.Fatalf("ProjectSummary = %q", summary.ProjectSummary)
+	}
+	if len(summary.KeyStrengths) != 1 || summary.KeyStrengths[0] != "Deterministic analysis" {
+		t.Fatalf("KeyStrengths = %#v", summary.KeyStrengths)
+	}
+}
+
+func TestParseModelResponseGenericFence(t *testing.T) {
+	text := "```\n" + `{
+		"projectSummary": "Summary.",
+		"architectureOverview": "Architecture.",
+		"keyStrengths": ["Strength"],
+		"potentialRisks": ["Risk"],
+		"recommendedNextSteps": ["Step"]
+	}` + "\n```"
+
+	if _, err := ParseModelResponse(text); err != nil {
+		t.Fatalf("ParseModelResponse returned error: %v", err)
+	}
+}
+
+func TestParseModelResponseWithProseBeforeAfter(t *testing.T) {
+	text := `Here is the summary:
+{
+	"projectSummary": "Summary.",
+	"architectureOverview": "Architecture.",
+	"keyStrengths": ["Strength"],
+	"potentialRisks": ["Risk"],
+	"recommendedNextSteps": ["Step"]
+}
+Hope this helps.`
+
+	summary, err := ParseModelResponse(text)
+	if err != nil {
+		t.Fatalf("ParseModelResponse returned error: %v", err)
+	}
+	if summary.ArchitectureOverview != "Architecture." {
+		t.Fatalf("ArchitectureOverview = %q", summary.ArchitectureOverview)
+	}
+}
+
+func TestParseModelResponseSkipsInvalidObjectBeforeValidJSON(t *testing.T) {
+	text := `This {is not json}
+{
+	"projectSummary": "Summary.",
+	"architectureOverview": "",
+	"keyStrengths": [],
+	"potentialRisks": [],
+	"recommendedNextSteps": []
+}`
+
+	summary, err := ParseModelResponse(text)
+	if err != nil {
+		t.Fatalf("ParseModelResponse returned error: %v", err)
+	}
+	if summary.ArchitectureOverview != missingSectionFallback {
+		t.Fatalf("ArchitectureOverview = %q", summary.ArchitectureOverview)
+	}
+}
+
+func TestParseModelResponseRepairsCommonJSONIssues(t *testing.T) {
+	text := `{
+		"projectSummary": "Summary.",
+		"architectureOverview": "Architecture.",
+		"keyStrengths": ["Strength",],
+		"potentialRisks": ["Risk"],
+		"recommendedNextSteps": ["Step"],
+	}`
+
+	if _, err := ParseModelResponse(text); err != nil {
+		t.Fatalf("ParseModelResponse returned error: %v", err)
+	}
+}
+
+func TestParseModelResponseEmptyFencedJSON(t *testing.T) {
+	if _, err := ParseModelResponse("```json\n```"); err == nil {
+		t.Fatal("ParseModelResponse succeeded for empty fenced JSON")
+	}
+}
+
+func TestParseModelResponseAllEmptyJSONIsNotUsable(t *testing.T) {
+	text := `{
+		"projectSummary": "",
+		"architectureOverview": "",
+		"keyStrengths": [],
+		"potentialRisks": [],
+		"recommendedNextSteps": []
+	}`
+
+	if _, err := ParseModelResponse(text); err == nil {
+		t.Fatal("ParseModelResponse succeeded for all-empty JSON")
+	}
+}
+
 func TestApplyModelResponseFallsBackOnInvalidJSON(t *testing.T) {
 	summary := &models.AISummary{Enabled: true, Model: "qwen:7b"}
 	applyModelResponse(summary, "Helpful prose, but not JSON.")
@@ -109,7 +217,34 @@ func TestApplyModelResponseFallsBackOnInvalidJSON(t *testing.T) {
 	if summary.RawText != "Helpful prose, but not JSON." {
 		t.Fatalf("RawText = %q", summary.RawText)
 	}
+	if summary.ParseError == "" {
+		t.Fatal("ParseError was empty")
+	}
 	if summary.ProjectSummary != "" || len(summary.RecommendedNextSteps) != 0 {
 		t.Fatalf("invalid JSON should not populate structured fields: %#v", summary)
+	}
+}
+
+func TestApplyModelResponseDropsEmptyFenceRawText(t *testing.T) {
+	summary := &models.AISummary{Enabled: true, Model: "qwen:7b"}
+	applyModelResponse(summary, "```json\n```")
+
+	if summary.RawText != "" {
+		t.Fatalf("RawText = %q, want empty", summary.RawText)
+	}
+	if summary.ParseError == "" {
+		t.Fatal("ParseError was empty")
+	}
+}
+
+func TestApplyModelResponseDropsAllEmptyJSONRawText(t *testing.T) {
+	summary := &models.AISummary{Enabled: true, Model: "qwen:7b"}
+	applyModelResponse(summary, `{"projectSummary":"","architectureOverview":"","keyStrengths":[],"potentialRisks":[],"recommendedNextSteps":[]}`)
+
+	if summary.RawText != "" {
+		t.Fatalf("RawText = %q, want empty", summary.RawText)
+	}
+	if summary.ParseError == "" {
+		t.Fatal("ParseError was empty")
 	}
 }

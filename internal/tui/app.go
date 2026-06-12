@@ -290,6 +290,8 @@ func (m Model) reportsDetail(width int) string {
 	fmt.Fprintf(&b, "Markdown: %s\n", truncate(filepath.Join(m.root, ".stackmap", "reports", "repo-report.md"), width-10))
 	if m.analysis.AI != nil && m.analysis.AI.Warning != "" {
 		fmt.Fprintf(&b, "\nAI warning: %s\n", truncate(m.analysis.AI.Warning, width-12))
+	} else if m.analysis.AI != nil && m.analysis.AI.ParseError != "" {
+		fmt.Fprintf(&b, "\nAI parse warning: %s\n", truncate(m.analysis.AI.ParseError, width-18))
 	} else {
 		fmt.Fprintf(&b, "\n%s\n", aiStatus(m.analysis.AI))
 	}
@@ -412,12 +414,21 @@ func aiStatus(ai *models.AISummary) string {
 		return "AI: disabled"
 	}
 	if ai.Warning != "" {
+		if strings.Contains(strings.ToLower(ai.Warning), "empty response") {
+			return "AI: returned no usable text"
+		}
 		return "AI: requested but unavailable"
 	}
-	if ai.Model != "" {
-		return "AI: enabled, generated with " + ai.Model
+	if ai.ParseError != "" {
+		if strings.TrimSpace(ai.RawText) == "" {
+			return "AI: returned no usable text"
+		}
+		return "AI: returned text but parsing failed"
 	}
-	return "AI: enabled"
+	if ai.Model != "" {
+		return "AI: summary generated with " + ai.Model
+	}
+	return "AI: summary generated"
 }
 
 func truncate(text string, max int) string {

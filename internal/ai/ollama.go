@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -22,7 +23,13 @@ const (
 	routeLimit     = 40
 	findingLimit   = 20
 	fileLimit      = 30
+	fieldLimit     = 700
+	itemLimit      = 220
 )
+
+const missingSectionFallback = "No AI summary was generated for this section."
+
+var trailingCommaRE = regexp.MustCompile(`,\s*([}\]])`)
 
 type OllamaClient struct {
 	BaseURL string
@@ -118,6 +125,18 @@ func Summarize(ctx context.Context, analysis *models.Analysis, model string) *mo
 		return summary
 	}
 	applyModelResponse(summary, text)
+	if summary.ParseError != "" {
+		refineCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+		defer cancel()
+		refineText, err := client.Generate(refineCtx, refinementPromptFor(analysis, text))
+		if err == nil {
+			refined := &models.AISummary{Enabled: true, Model: model, GeneratedAt: summary.GeneratedAt}
+			applyModelResponse(refined, refineText)
+			if refined.ParseError == "" {
+				*summary = *refined
+			}
+		}
+	}
 	return summary
 }
 
@@ -211,16 +230,51 @@ func promptFor(a *models.Analysis) string {
 	data, _ := json.MarshalIndent(BuildCompactInput(a), "", "  ")
 	return `You are StackMap, a local-only software engineering documentation assistant.
 
-Use only the provided static analysis data. Do not invent features, services, routes, dependencies, or deployment behavior. Do not claim to have read source files. Be concise, practical, and useful to engineers.
+Return only valid JSON. Do not wrap the response in Markdown. Do not use code fences.
+Use only the provided static analysis data. Do not invent features, services, routes, dependencies, or deployment behavior. Do not claim to have read source files. Keep every value concise and practical.
+Fill the fields with concrete content from the analysis. Do not return empty strings. Do not return placeholder values. When the analysis supports it, include 2 to 5 concise string items in each array.
 
-Return only valid JSON with this exact shape:
+Every field is required. Arrays must contain strings only. Return this exact JSON schema:
 {
-  "projectSummary": "...",
-  "architectureOverview": "...",
-  "keyStrengths": ["..."],
-  "potentialRisks": ["..."],
-  "recommendedNextSteps": ["..."]
+  "projectSummary": "string",
+  "architectureOverview": "string",
+  "keyStrengths": ["string"],
+  "potentialRisks": ["string"],
+  "recommendedNextSteps": ["string"]
 }
+
+Example of valid output:
+{
+  "projectSummary": "This repository is a local-first Go CLI that analyzes codebases and exports JSON and Markdown reports.",
+  "architectureOverview": "The CLI runs deterministic analyzers for stack, routes, tests, environment variables, and deployment readiness, then writes reports.",
+  "keyStrengths": ["Local-only operation", "Deterministic static analysis"],
+  "potentialRisks": ["AI summaries depend on local model output quality"],
+  "recommendedNextSteps": ["Keep generated reports current", "Add tests around important analyzer behavior"]
+}
+
+Analysis data:
+` + string(data)
+}
+
+func refinementPromptFor(a *models.Analysis, previous string) string {
+	data, _ := json.MarshalIndent(BuildCompactInput(a), "", "  ")
+	return `Your previous response could not be parsed as the required StackMap JSON summary.
+
+Return only valid JSON. Do not wrap the response in Markdown. Do not use code fences. Do not include explanations.
+Every field is required. Arrays must contain strings only. Keep values concise. Use only the analysis data below and do not invent details.
+Fill the fields with concrete content from the analysis. Do not return empty strings. Do not return placeholder values. When the analysis supports it, include 2 to 5 concise string items in each array.
+
+Required schema:
+{
+  "projectSummary": "string",
+  "architectureOverview": "string",
+  "keyStrengths": ["string"],
+  "potentialRisks": ["string"],
+  "recommendedNextSteps": ["string"]
+}
+
+Previous invalid response, for context only:
+` + capText(previous, 1200) + `
 
 Analysis data:
 ` + string(data)
@@ -229,7 +283,8 @@ Analysis data:
 func applyModelResponse(summary *models.AISummary, text string) {
 	parsed, err := ParseModelResponse(text)
 	if err != nil {
-		summary.RawText = strings.TrimSpace(text)
+		summary.RawText = cleanRawResponse(text)
+		summary.ParseError = err.Error()
 		return
 	}
 	summary.ProjectSummary = parsed.ProjectSummary
@@ -241,34 +296,157 @@ func applyModelResponse(summary *models.AISummary, text string) {
 
 func ParseModelResponse(text string) (models.AISummary, error) {
 	var parsed aiJSONResponse
-	candidate := extractJSONObject(strings.TrimSpace(text))
-	if candidate == "" {
+	candidates := extractJSONObjects(text)
+	if len(candidates) == 0 {
 		return models.AISummary{}, errors.New("response did not contain a JSON object")
 	}
-	if err := json.Unmarshal([]byte(candidate), &parsed); err != nil {
-		return models.AISummary{}, err
+	var lastErr error
+	for _, candidate := range candidates {
+		candidate = repairCommonJSON(candidate)
+		if err := json.Unmarshal([]byte(candidate), &parsed); err != nil {
+			lastErr = err
+			continue
+		}
+		if !hasUsableParsedContent(parsed) {
+			lastErr = errors.New("JSON summary object contained no usable text")
+			continue
+		}
+		return cleanParsedSummary(parsed), nil
 	}
-	return models.AISummary{
-		ProjectSummary:       strings.TrimSpace(parsed.ProjectSummary),
-		ArchitectureOverview: strings.TrimSpace(parsed.ArchitectureOverview),
-		KeyStrengths:         trimList(parsed.KeyStrengths),
-		PotentialRisks:       trimList(parsed.PotentialRisks),
-		RecommendedNextSteps: trimList(parsed.RecommendedNextSteps),
-	}, nil
+	if lastErr == nil {
+		lastErr = errors.New("response did not contain a valid JSON summary object")
+	}
+	return models.AISummary{}, lastErr
 }
 
 func extractJSONObject(text string) string {
-	text = strings.TrimSpace(text)
-	text = strings.TrimPrefix(text, "```json")
-	text = strings.TrimPrefix(text, "```")
-	text = strings.TrimSuffix(text, "```")
-	text = strings.TrimSpace(text)
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start == -1 || end == -1 || end < start {
+	candidates := extractJSONObjects(text)
+	if len(candidates) == 0 {
 		return ""
 	}
-	return text[start : end+1]
+	return candidates[0]
+}
+
+func extractJSONObjects(text string) []string {
+	text = strings.TrimSpace(text)
+	depth := 0
+	start := -1
+	inString := false
+	escaped := false
+	var out []string
+	for i, r := range text {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch r {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch r {
+		case '"':
+			inString = true
+		case '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case '}':
+			if depth == 0 {
+				continue
+			}
+			depth--
+			if depth == 0 && start >= 0 {
+				out = append(out, text[start:i+len(string(r))])
+				start = -1
+			}
+		}
+	}
+	return out
+}
+
+func repairCommonJSON(text string) string {
+	text = strings.TrimSpace(text)
+	text = strings.ReplaceAll(text, "\uFF0C", ",")
+	text = trailingCommaRE.ReplaceAllString(text, "$1")
+	return text
+}
+
+func cleanParsedSummary(parsed aiJSONResponse) models.AISummary {
+	return models.AISummary{
+		ProjectSummary:       requiredString(parsed.ProjectSummary),
+		ArchitectureOverview: requiredString(parsed.ArchitectureOverview),
+		KeyStrengths:         cleanList(parsed.KeyStrengths),
+		PotentialRisks:       cleanList(parsed.PotentialRisks),
+		RecommendedNextSteps: cleanList(parsed.RecommendedNextSteps),
+	}
+}
+
+func hasUsableParsedContent(parsed aiJSONResponse) bool {
+	if strings.TrimSpace(parsed.ProjectSummary) != "" || strings.TrimSpace(parsed.ArchitectureOverview) != "" {
+		return true
+	}
+	return len(cleanList(parsed.KeyStrengths))+len(cleanList(parsed.PotentialRisks))+len(cleanList(parsed.RecommendedNextSteps)) > 0
+}
+
+func requiredString(value string) string {
+	value = capText(strings.TrimSpace(value), fieldLimit)
+	if value == "" {
+		return missingSectionFallback
+	}
+	return value
+}
+
+func cleanList(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = capText(strings.TrimSpace(item), itemLimit)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func capText(text string, limit int) string {
+	runes := []rune(text)
+	if limit <= 0 || len(runes) <= limit {
+		return text
+	}
+	if limit <= 3 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-3]) + "..."
+}
+
+func cleanRawResponse(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	lower := strings.ToLower(text)
+	if strings.HasPrefix(lower, "```json") || strings.HasPrefix(text, "```") {
+		lines := strings.Split(text, "\n")
+		if len(lines) >= 2 && strings.HasPrefix(strings.TrimSpace(lines[0]), "```") && strings.TrimSpace(lines[len(lines)-1]) == "```" {
+			text = strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+		}
+	}
+	if text == "" || text == "{}" || text == "[]" {
+		return ""
+	}
+	candidates := extractJSONObjects(text)
+	if len(candidates) == 1 {
+		var parsed aiJSONResponse
+		if err := json.Unmarshal([]byte(repairCommonJSON(candidates[0])), &parsed); err == nil && !hasUsableParsedContent(parsed) {
+			return ""
+		}
+	}
+	return capText(text, 3000)
 }
 
 func fileCounts(files []models.FileInfo) map[models.FileKind]int {
@@ -390,17 +568,6 @@ func copyStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
 		out[k] = v
-	}
-	return out
-}
-
-func trimList(items []string) []string {
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item != "" {
-			out = append(out, item)
-		}
 	}
 	return out
 }

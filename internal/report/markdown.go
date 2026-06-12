@@ -149,29 +149,44 @@ func writeAIProjectSummary(b *strings.Builder, ai *models.AISummary) {
 		fmt.Fprintln(b)
 		return
 	}
-	if ai.ProjectSummary == "" && ai.ArchitectureOverview == "" && len(ai.KeyStrengths)+len(ai.PotentialRisks)+len(ai.RecommendedNextSteps) == 0 {
-		if ai.RawText != "" {
-			fmt.Fprintln(b, "The model returned text that could not be parsed as structured JSON.")
+	if ai.ParseError != "" || !hasStructuredAISummary(ai) {
+		fmt.Fprintf(b, "AI summary was requested with `%s`, but StackMap could not parse the model response as structured JSON.\n\n", fallbackText(ai.Model, "the selected model"))
+		raw := strings.TrimSpace(ai.RawText)
+		if raw == "" {
+			fmt.Fprintln(b, "No usable AI summary text was returned by the model.")
 			fmt.Fprintln(b)
-			writeIndentedBlock(b, ai.RawText)
+			return
 		}
+		fmt.Fprintln(b, "### Raw Model Summary")
+		fmt.Fprintln(b)
+		writeIndentedBlock(b, raw)
 		return
 	}
 	fmt.Fprintf(b, "Generated locally with `%s`.\n\n", ai.Model)
-	fmt.Fprintf(b, "### Summary\n\n%s\n\n", fallbackText(ai.ProjectSummary, "No summary returned."))
-	fmt.Fprintf(b, "### Architecture Overview\n\n%s\n\n", fallbackText(ai.ArchitectureOverview, "No architecture overview returned."))
+	writeTextSection(b, "Summary", ai.ProjectSummary)
+	writeTextSection(b, "Architecture Overview", ai.ArchitectureOverview)
 	writeBulletSection(b, "Key Strengths", ai.KeyStrengths)
 	writeBulletSection(b, "Potential Risks", ai.PotentialRisks)
 	writeBulletSection(b, "Recommended Next Steps", ai.RecommendedNextSteps)
 }
 
-func writeBulletSection(b *strings.Builder, label string, items []string) {
-	fmt.Fprintf(b, "### %s\n\n", label)
-	if len(items) == 0 {
-		fmt.Fprintln(b, "- None returned.")
-		fmt.Fprintln(b)
+func hasStructuredAISummary(ai *models.AISummary) bool {
+	return ai.ProjectSummary != "" || ai.ArchitectureOverview != "" || len(ai.KeyStrengths)+len(ai.PotentialRisks)+len(ai.RecommendedNextSteps) > 0
+}
+
+func writeTextSection(b *strings.Builder, label, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return
 	}
+	fmt.Fprintf(b, "### %s\n\n%s\n\n", label, value)
+}
+
+func writeBulletSection(b *strings.Builder, label string, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "### %s\n\n", label)
 	for _, item := range items {
 		fmt.Fprintf(b, "- %s\n", item)
 	}
@@ -180,6 +195,7 @@ func writeBulletSection(b *strings.Builder, label string, items []string) {
 
 func writeIndentedBlock(b *strings.Builder, text string) {
 	for _, line := range strings.Split(text, "\n") {
+		line = strings.ReplaceAll(line, "```", "~~~")
 		fmt.Fprintf(b, "    %s\n", line)
 	}
 	fmt.Fprintln(b)
