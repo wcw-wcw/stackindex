@@ -10,11 +10,36 @@ import (
 	"github.com/will/stackmap/internal/models"
 )
 
+const (
+	envRequiredAppConfig = "required_app_config"
+	envOptionalAppConfig = "optional_app_config"
+	envPlatformProvided  = "platform_provided"
+	envBuildMetadata     = "build_metadata"
+	envTestOrScriptOnly  = "test_or_script_only"
+)
+
 var envPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`process\.env\.([A-Za-z_][A-Za-z0-9_]*)`),
 	regexp.MustCompile(`import\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)`),
 	regexp.MustCompile(`Deno\.env\.get\(["']([A-Za-z_][A-Za-z0-9_]*)["']\)`),
 	regexp.MustCompile(`os\.Getenv\(["']([A-Za-z_][A-Za-z0-9_]*)["']\)`),
+}
+
+var commonPlatformOrBuildVars = map[string]string{
+	"NODE_ENV":               envPlatformProvided,
+	"PORT":                   envPlatformProvided,
+	"VERCEL":                 envPlatformProvided,
+	"VERCEL_ENV":             envPlatformProvided,
+	"VERCEL_URL":             envPlatformProvided,
+	"VERCEL_REGION":          envPlatformProvided,
+	"VERCEL_GIT_COMMIT_SHA":  envBuildMetadata,
+	"RENDER":                 envPlatformProvided,
+	"RENDER_EXTERNAL_URL":    envPlatformProvided,
+	"RENDER_GIT_COMMIT":      envBuildMetadata,
+	"GIT_COMMIT_SHA":         envBuildMetadata,
+	"BUILD_TIME":             envBuildMetadata,
+	"NEXT_PUBLIC_BUILD_TIME": envBuildMetadata,
+	"CI":                     envPlatformProvided,
 }
 
 func AnalyzeEnv(root string, files []models.FileInfo) (models.EnvAnalysis, []models.Finding) {
@@ -62,19 +87,25 @@ func AnalyzeEnv(root string, files []models.FileInfo) (models.EnvAnalysis, []mod
 			paths = append(paths, path)
 		}
 		sort.Strings(paths)
-		result.UsedVars = append(result.UsedVars, models.EnvVar{Name: name, Files: paths})
-		if exampleFile == "" || !exampleVars[name] {
+		missing := exampleFile == "" || !exampleVars[name]
+		classification := classifyEnvVar(name, paths)
+		result.UsedVars = append(result.UsedVars, models.EnvVar{Name: name, Files: paths, Classification: classification, ScriptOnly: scriptOnly(paths), MissingExample: missing})
+		if missing {
 			result.MissingFromExample = append(result.MissingFromExample, name)
+			if classification == envRequiredAppConfig {
+				result.MissingRequiredFromExample = append(result.MissingRequiredFromExample, name)
+			}
 		}
 	}
 	sort.Slice(result.UsedVars, func(i, j int) bool { return result.UsedVars[i].Name < result.UsedVars[j].Name })
 	sort.Strings(result.MissingFromExample)
+	sort.Strings(result.MissingRequiredFromExample)
 
 	var findings []models.Finding
-	if len(used) > 0 && exampleFile == "" {
+	if len(result.MissingRequiredFromExample) > 0 && exampleFile == "" {
 		findings = append(findings, models.Finding{Severity: models.SeverityMedium, Category: "env", Message: "Environment variables are used, but no .env.example file was found.", Recommendation: "Add a .env.example with variable names and safe placeholder values."})
-	} else if len(result.MissingFromExample) > 0 {
-		findings = append(findings, models.Finding{Severity: models.SeverityMedium, Category: "env", Message: "Some environment variables used in code are missing from .env.example.", File: exampleFile, Recommendation: "Document the missing variables in .env.example."})
+	} else if len(result.MissingRequiredFromExample) > 0 {
+		findings = append(findings, models.Finding{Severity: models.SeverityMedium, Category: "env", Message: "Required application environment variables are missing from .env.example.", File: exampleFile, Recommendation: "Document the required runtime configuration in .env.example."})
 	}
 	for _, name := range result.ExampleVars {
 		if secretLike(name) && envExampleHasRealLookingValue(filepath.Join(root, exampleFile), name) {
@@ -83,6 +114,51 @@ func AnalyzeEnv(root string, files []models.FileInfo) (models.EnvAnalysis, []mod
 		}
 	}
 	return result, findings
+}
+
+func classifyEnvVar(name string, paths []string) string {
+	upper := strings.ToUpper(name)
+	if class, ok := commonPlatformOrBuildVars[upper]; ok {
+		return class
+	}
+	if scriptOnly(paths) {
+		return envTestOrScriptOnly
+	}
+	if strings.Contains(upper, "COMMIT") || strings.Contains(upper, "SHA") || strings.Contains(upper, "BUILD_") || strings.HasSuffix(upper, "_VERSION") {
+		return envBuildMetadata
+	}
+	if strings.HasPrefix(upper, "VERCEL_") || strings.HasPrefix(upper, "RENDER_") || strings.HasPrefix(upper, "RAILWAY_") || strings.HasPrefix(upper, "FLY_") || strings.HasPrefix(upper, "NETLIFY_") || strings.HasPrefix(upper, "AWS_") {
+		return envPlatformProvided
+	}
+	if strings.Contains(upper, "OPTIONAL") || strings.Contains(upper, "DEBUG") || strings.Contains(upper, "LOG_LEVEL") || strings.Contains(upper, "FEATURE_") || strings.HasSuffix(upper, "_ENABLED") {
+		return envOptionalAppConfig
+	}
+	if secretLike(name) || strings.Contains(upper, "DATABASE") || strings.Contains(upper, "DB_") || strings.Contains(upper, "REDIS") || strings.Contains(upper, "URL") || strings.Contains(upper, "DSN") || strings.Contains(upper, "HOST") {
+		return envRequiredAppConfig
+	}
+	return envOptionalAppConfig
+}
+
+func scriptOnly(paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	for _, path := range paths {
+		lower := strings.ToLower(filepath.ToSlash(path))
+		if !(strings.Contains(lower, "/scripts/") ||
+			strings.HasPrefix(lower, "scripts/") ||
+			strings.Contains(lower, "/test/") ||
+			strings.Contains(lower, "/tests/") ||
+			strings.Contains(lower, "__tests__/") ||
+			strings.HasSuffix(lower, "_test.go") ||
+			strings.HasSuffix(lower, ".test.ts") ||
+			strings.HasSuffix(lower, ".test.tsx") ||
+			strings.HasSuffix(lower, ".spec.ts") ||
+			strings.HasSuffix(lower, ".spec.tsx")) {
+			return false
+		}
+	}
+	return true
 }
 
 func ExtractEnvVars(content string) []string {

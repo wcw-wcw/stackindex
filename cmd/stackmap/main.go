@@ -77,6 +77,9 @@ func analyze(args []string) error {
 	}
 	if *enableAI {
 		analysis.AI = ai.Summarize(context.Background(), analysis, *model)
+		if analysis.AI.Warning != "" {
+			fmt.Fprintf(os.Stderr, "stackmap: %s\n", analysis.AI.Warning)
+		}
 	}
 
 	if *jsonOut {

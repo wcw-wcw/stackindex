@@ -5,4 +5,5 @@ type RouteInfo struct {
 	Path       string `json:"path"`
 	SourceFile string `json:"sourceFile"`
 	Confidence string `json:"confidence"`
+	Note       string `json:"note,omitempty"`
 }

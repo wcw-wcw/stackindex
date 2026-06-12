@@ -48,7 +48,7 @@ func AnalyzeDeployment(root string, files []models.FileInfo, pkg *models.Package
 	} else if !result.ReadmeMentionsSetup {
 		findings = append(findings, models.Finding{Severity: models.SeverityLow, Category: "docs", Message: "README does not appear to mention setup, install, or run instructions.", File: "README.md", Recommendation: "Document the basic local development flow."})
 	}
-	if env.UsesEnvVars && !result.HasEnvExample {
+	if len(env.MissingRequiredFromExample) > 0 && !result.HasEnvExample {
 		findings = append(findings, models.Finding{Severity: models.SeverityMedium, Category: "deployment", Message: "Environment variables are used but not documented in .env.example.", Recommendation: "Add .env.example before deployment handoff."})
 	}
 	if backendLikely(pkg, routes) && !result.HasHealthEndpoint {

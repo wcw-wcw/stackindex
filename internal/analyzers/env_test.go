@@ -1,6 +1,12 @@
 package analyzers
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/will/stackmap/internal/models"
+)
 
 func TestExtractEnvVars(t *testing.T) {
 	content := `
@@ -18,5 +24,23 @@ secret := os.Getenv("GO_SECRET")
 		if !want[name] {
 			t.Fatalf("unexpected env var %s", name)
 		}
+	}
+}
+
+func TestAnalyzeEnvDoesNotWarnForPlatformBuildVars(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "app.ts")
+	if err := os.WriteFile(sourcePath, []byte(`console.log(process.env.NODE_ENV, process.env.VERCEL_GIT_COMMIT_SHA, process.env.BUILD_TIME)`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	env, findings := AnalyzeEnv(root, []models.FileInfo{{Path: "app.ts", Kind: models.FileKindSource}})
+	if len(env.MissingFromExample) != 3 {
+		t.Fatalf("expected detected missing vars to stay visible, got %#v", env.MissingFromExample)
+	}
+	if len(env.MissingRequiredFromExample) != 0 {
+		t.Fatalf("expected no required missing vars, got %#v", env.MissingRequiredFromExample)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected no env findings for platform/build vars, got %#v", findings)
 	}
 }

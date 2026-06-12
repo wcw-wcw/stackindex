@@ -20,17 +20,21 @@ type PackageInfo struct {
 }
 
 type EnvVar struct {
-	Name  string   `json:"name"`
-	Files []string `json:"files,omitempty"`
+	Name           string   `json:"name"`
+	Files          []string `json:"files,omitempty"`
+	Classification string   `json:"classification,omitempty"`
+	ScriptOnly     bool     `json:"scriptOnly,omitempty"`
+	MissingExample bool     `json:"missingExample,omitempty"`
 }
 
 type EnvAnalysis struct {
-	UsesEnvVars        bool     `json:"usesEnvVars"`
-	ExampleFile        string   `json:"exampleFile,omitempty"`
-	ExampleVars        []string `json:"exampleVars,omitempty"`
-	UsedVars           []EnvVar `json:"usedVars,omitempty"`
-	MissingFromExample []string `json:"missingFromExample,omitempty"`
-	EnvFilePresent     bool     `json:"envFilePresent"`
+	UsesEnvVars                bool     `json:"usesEnvVars"`
+	ExampleFile                string   `json:"exampleFile,omitempty"`
+	ExampleVars                []string `json:"exampleVars,omitempty"`
+	UsedVars                   []EnvVar `json:"usedVars,omitempty"`
+	MissingFromExample         []string `json:"missingFromExample,omitempty"`
+	MissingRequiredFromExample []string `json:"missingRequiredFromExample,omitempty"`
+	EnvFilePresent             bool     `json:"envFilePresent"`
 }
 
 type TestAnalysis struct {
@@ -57,11 +61,16 @@ type DeploymentAnalysis struct {
 }
 
 type AISummary struct {
-	Enabled        bool   `json:"enabled"`
-	Model          string `json:"model,omitempty"`
-	ProjectSummary string `json:"projectSummary,omitempty"`
-	NextSteps      string `json:"nextSteps,omitempty"`
-	Warning        string `json:"warning,omitempty"`
+	Enabled              bool      `json:"enabled"`
+	Model                string    `json:"model,omitempty"`
+	GeneratedAt          time.Time `json:"generatedAt,omitempty"`
+	ProjectSummary       string    `json:"projectSummary,omitempty"`
+	ArchitectureOverview string    `json:"architectureOverview,omitempty"`
+	KeyStrengths         []string  `json:"keyStrengths,omitempty"`
+	PotentialRisks       []string  `json:"potentialRisks,omitempty"`
+	RecommendedNextSteps []string  `json:"recommendedNextSteps,omitempty"`
+	RawText              string    `json:"rawText,omitempty"`
+	Warning              string    `json:"warning,omitempty"`
 }
 
 type Analysis struct {
