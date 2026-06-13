@@ -184,7 +184,7 @@ func EvaluateAudit(analysis *models.Analysis, opts AuditOptions) *models.AuditRe
 		FailOnLow:         opts.FailOnLow,
 	}
 
-	high, medium, low := auditSeverityCounts(analysis.Findings)
+	high, medium, low := auditSeverityCounts(analysis)
 	if high > 0 {
 		result.Reasons = append(result.Reasons, pluralizeCount(high, "high finding")+" detected.")
 	}
@@ -237,15 +237,19 @@ func EvaluateAudit(analysis *models.Analysis, opts AuditOptions) *models.AuditRe
 	return result
 }
 
-func auditSeverityCounts(findings []models.Finding) (int, int, int) {
+func auditSeverityCounts(analysis *models.Analysis) (int, int, int) {
 	var high, medium, low int
-	for _, finding := range findings {
+	testsAlreadyAudited := !auditTestsDetected(analysis.Tests)
+	for _, finding := range analysis.Findings {
 		switch finding.Severity {
 		case models.SeverityHigh:
 			high++
 		case models.SeverityMedium:
 			medium++
 		case models.SeverityLow:
+			if testsAlreadyAudited && finding.Category == "tests" {
+				continue
+			}
 			low++
 		}
 	}

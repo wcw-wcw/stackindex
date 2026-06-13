@@ -241,6 +241,29 @@ func TestAnimerecLikeAuditPassesWithAllowMissingTests(t *testing.T) {
 	}
 }
 
+func TestMissingTestsLowFindingDoesNotDuplicateAuditWarning(t *testing.T) {
+	analysis := animerecLikeAnalysis()
+	analysis.Findings = append(analysis.Findings, models.Finding{
+		Severity: models.SeverityLow,
+		Category: "tests",
+		Message:  "No obvious test files were found.",
+	})
+
+	result := EvaluateAudit(analysis, AuditOptions{AllowMissingTests: true})
+	if !result.Passed {
+		t.Fatalf("EvaluateAudit() = %+v, want pass", result)
+	}
+	if !contains(result.Warnings, "1 low finding detected.") {
+		t.Fatalf("warnings = %v, want non-test low finding warning", result.Warnings)
+	}
+	if contains(result.Warnings, "2 low findings detected.") {
+		t.Fatalf("warnings duplicated missing test finding in low count: %v", result.Warnings)
+	}
+	if !contains(result.Warnings, "Tests were not detected.") {
+		t.Fatalf("warnings = %v, want missing tests warning", result.Warnings)
+	}
+}
+
 func TestAIFailureDoesNotFailAudit(t *testing.T) {
 	analysis := healthyAnalysis()
 	analysis.AI = &models.AISummary{

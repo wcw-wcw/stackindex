@@ -235,6 +235,9 @@ func writeDeterministicAIFallback(b *strings.Builder, a *models.Analysis, ai *mo
 func DeterministicAISummary(a *models.Analysis) string {
 	stackTerms := compactStackTerms(a.Stack)
 	projectType := deterministicProjectType(a.Stack)
+	if projectType != "" {
+		stackTerms = removeProjectTypeTerms(stackTerms, projectType)
+	}
 	stackPhrase := "a local codebase"
 	if projectType != "" && len(stackTerms) > 0 {
 		stackPhrase = fmt.Sprintf("%s using %s", projectType, humanJoin(stackTerms))
@@ -273,6 +276,19 @@ func DeterministicAISummary(a *models.Analysis) string {
 		parts = append(parts, fmt.Sprintf("StackMap found %s worth reviewing.", findingSummary(a.Findings)))
 	}
 	return strings.Join(parts, " ")
+}
+
+func removeProjectTypeTerms(terms []string, projectType string) []string {
+	projectType = strings.ToLower(projectType)
+	var out []string
+	for _, term := range terms {
+		key := strings.ToLower(strings.TrimSpace(term))
+		if key == "" || strings.Contains(projectType, key) {
+			continue
+		}
+		out = append(out, term)
+	}
+	return out
 }
 
 func writeIndentedBlock(b *strings.Builder, text string) {

@@ -24,7 +24,7 @@ func TestMarkdownRendersStructuredAISummary(t *testing.T) {
 	out := Markdown(analysis)
 	for _, want := range []string{
 		"## AI Project Summary",
-		"StackMap detected this as a Go application using Go.",
+		"StackMap detected this as a Go application.",
 		"### Local AI Notes",
 		"### Summary",
 		"A local-first analyzer.",
@@ -56,7 +56,7 @@ func TestMarkdownRendersGracefulAIFallback(t *testing.T) {
 
 	out := Markdown(analysis)
 	for _, want := range []string{
-		"StackMap detected this as a Go application using Go.",
+		"StackMap detected this as a Go application.",
 		"Local AI summary unavailable: `qwen:7b` did not return usable project-summary text.",
 	} {
 		if !strings.Contains(out, want) {
@@ -128,7 +128,7 @@ func TestMarkdownRendersRelevantRawFallback(t *testing.T) {
 	if !strings.Contains(out, "### Local AI Notes") || !strings.Contains(out, "This Go CLI analyzes repositories") {
 		t.Fatalf("Markdown did not render relevant local AI notes:\n%s", out)
 	}
-	if !strings.Contains(out, "StackMap detected this as a Go application using Go.") {
+	if !strings.Contains(out, "StackMap detected this as a Go application.") {
 		t.Fatalf("Markdown did not render deterministic summary before local notes:\n%s", out)
 	}
 }

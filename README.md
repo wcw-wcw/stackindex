@@ -1,18 +1,23 @@
 # StackMap
 
-StackMap is a local-first developer tool for quickly mapping a codebase from the terminal. It scans a local repository, detects common stack signals, audits deployment and readiness issues, and exports useful Markdown and JSON reports.
+StackMap is a local-first Go CLI/TUI for understanding a codebase before you deploy, hand it off, or wire it into CI. It scans a repository, detects common stack and structure signals, checks deployment readiness, and writes Markdown/JSON reports that are useful for humans and automation.
 
-The MVP is built in Go with a Bubble Tea terminal UI. Static analysis works without AI. Optional AI support is local-only through Ollama.
+It is for developers reviewing their own apps, maintainers onboarding to unfamiliar repos, and teams that want a lightweight deterministic audit gate without sending source code to a hosted service.
 
-## Install and Run
+Local-first matters because StackMap is meant to run directly beside your code:
+
+- It does not upload repositories.
+- It does not call cloud AI APIs.
+- It does not run arbitrary project commands.
+- Optional AI summaries use your local Ollama server only.
+- Audit pass/fail is always based on deterministic static checks, not model output.
+
+## Quickstart
 
 ```sh
 go run ./cmd/stackmap --help
-go run ./cmd/stackmap
 go run ./cmd/stackmap analyze .
-go run ./cmd/stackmap analyze ./path-to-project
 go run ./cmd/stackmap analyze . --no-tui
-go run ./cmd/stackmap analyze . --json
 go run ./cmd/stackmap audit .
 ```
 
@@ -23,7 +28,44 @@ go build -o stackmap ./cmd/stackmap
 ./stackmap analyze .
 ```
 
-## What StackMap Checks
+## Features
+
+| Feature | What StackMap does |
+| --- | --- |
+| Stack detection | Detects common languages, frameworks, databases, test tools, and deployment targets. |
+| API route detection | Extracts basic Express and Next.js route patterns when visible statically. |
+| Env var review | Compares app env var usage with `.env.example` and warns about missing or unsafe placeholders. |
+| Deployment readiness checks | Reviews README/setup hints, build/test scripts, health endpoints, migrations, Docker/Vercel signals, and related findings. |
+| Markdown/JSON exports | Writes `.stackmap/reports/repo-report.md` and `.stackmap/analysis.json`. |
+| TUI overview | Shows a Bubble Tea/Lip Gloss terminal overview for interactive review. |
+| Deterministic audit gate | Provides CI-friendly pass/fail behavior using static findings and readiness rules. |
+| Optional local AI notes | Adds report-only Ollama summaries with deterministic fallback text. |
+
+## Example Commands
+
+```sh
+stackmap analyze .
+stackmap analyze . --no-tui
+stackmap analyze . --json
+stackmap analyze . --ai
+stackmap analyze . --ai --model llama3.2:3b
+stackmap analyze . --ai-debug
+stackmap audit .
+stackmap audit . --allow-missing-tests
+stackmap audit . --fail-on-low
+```
+
+When running from source, prefix the same commands with `go run ./cmd/stackmap`, for example:
+
+```sh
+go run ./cmd/stackmap audit .
+```
+
+## Analyze Mode
+
+`stackmap analyze [path]` scans a repository and opens the terminal UI by default. Use `--no-tui` for a plain export-only run, or `--json` to print JSON to stdout.
+
+Analyze mode checks:
 
 - Repository files and basic metadata
 - JavaScript and TypeScript package scripts and dependencies
@@ -31,11 +73,34 @@ go build -o stackmap ./cmd/stackmap
 - Environment variable usage compared with `.env.example`
 - Basic Express and Next.js route patterns
 - Test infrastructure and test scripts
-- Deployment readiness signals such as README, Dockerfile, Vercel config, health endpoints, migrations, and setup notes
+- Deployment readiness signals such as README, Dockerfile, Vercel config, health endpoints, migrations, and setup/deploy notes
 
 StackMap intentionally keeps findings conservative to avoid noisy false positives.
 
-## Generated Files
+## Audit Mode
+
+`stackmap audit [path]` runs the same static analysis and writes the same reports, then evaluates a deterministic deployment-readiness gate. It is designed for CI and exits non-zero when blockers are found.
+
+By default, audit fails for:
+
+- High findings
+- Medium findings
+- Missing stack detection
+- Missing tests
+- Env var usage without `.env.example`
+- Backend/API deployment surfaces without a health endpoint
+
+Low and info findings do not fail audit by default. Static/frontend-style deployments without health endpoints receive a warning instead of a failure.
+
+Audit flags:
+
+- `--allow-medium`: treat medium findings as warnings.
+- `--allow-missing-tests`: treat missing tests as a warning.
+- `--fail-on-low`: make low findings block the audit.
+- `--json`: print JSON and still use the audit exit code.
+- `--ai`: include optional local AI report notes without affecting pass/fail.
+
+## Report Outputs
 
 Reports are written under the analyzed repository:
 
@@ -48,56 +113,118 @@ Reports are written under the analyzed repository:
 
 Add `.stackmap/` to your project `.gitignore` unless you deliberately want to commit generated reports.
 
-On macOS, Finder hides folders that start with a dot. If you do not see `.stackmap` in Finder, press `Cmd+Shift+.` to toggle hidden files, or open it directly:
+On macOS, Finder hides folders that start with a dot. If you do not see `.stackmap`, press `Cmd+Shift+.` in Finder or open it directly:
 
 ```sh
 open /path/to/your/repo/.stackmap
 ```
 
-## Local Storage and Privacy
+## Example Report Snippets
 
-StackMap is local-first:
+Clean audit pass, as validated against `stkapp`:
 
-- It does not upload code.
-- It does not use OpenAI or cloud APIs.
-- It does not run arbitrary project commands.
-- It skips common heavy folders such as `.git`, `node_modules`, `dist`, `build`, `.next`, `coverage`, and `.stackmap`.
-- It avoids reading or printing real `.env` values. `.env.example` may be scanned for variable names and placeholder safety.
+```md
+## Audit Result
 
-## Optional Ollama/Qwen Analysis
+- Status: passed
+- Exit code: 0
+- Blocking issues: none
+```
 
-AI is disabled by default. To enable local Ollama analysis:
+Warning/pass audit, as validated against `animerec --allow-missing-tests`:
+
+```md
+## Audit Result
+
+- Status: passed
+- Exit code: 0
+- Blocking issues: none
+- Warnings:
+
+  - 1 low finding detected.
+  - Deployment target detected without a health endpoint; this may be acceptable for static frontend apps.
+  - Tests were not detected.
+```
+
+AI summary shape with deterministic summary first and local notes second:
+
+```md
+## AI Project Summary
+
+StackMap detected this as a Next.js/React application using TypeScript, JavaScript, PostgreSQL, Vitest, and Vercel. The project appears deployment-aware: tests, health endpoints, migration files, deployment docs, and an env example are present. No actionable findings were detected.
+
+### Local AI Notes
+
+This TypeScript Next.js/React app has PostgreSQL and Vercel signals in the StackMap factsheet.
+
+- Vitest is detected for testing.
+- Migration files and an env example are present.
+```
+
+## Local AI Summaries
+
+AI is disabled by default. To enable local Ollama summaries:
 
 ```sh
 ollama serve
 ollama pull llama3.2:3b
-ollama pull qwen:7b
 go run ./cmd/stackmap analyze . --ai
 ```
 
-When enabled, StackMap sends only a compact factsheet of the deterministic analysis to the local Ollama server. It does not send the entire repository or `.env` files.
+When enabled, StackMap sends only a compact factsheet of the deterministic analysis to the local Ollama server. It does not send the entire repository or `.env` files. If Ollama is unavailable or a model returns unusable text, StackMap records a friendly warning and continues with static analysis and a deterministic fallback summary.
 
-If Ollama is unavailable, StackMap records a friendly warning and continues with static analysis.
+Model recommendations:
 
-Local model behavior varies. By default StackMap tries `llama3.2:3b`, then `qwen:7b`, then falls back to the deterministic StackMap summary. To force one model, pass `--model <name>`. To inspect the local prompt and model responses for troubleshooting, run with `--ai-debug`; StackMap writes diagnostics under `.stackmap/ai-debug/` without reading `.env` values.
+- Start with `llama3.2:3b` for fast local summaries.
+- Try `qwen:7b` if you already have it installed or want a second local model option.
+- Use `--model <name>` to force a specific Ollama model.
 
-## CI Audit Mode
+By default, StackMap tries `llama3.2:3b`, then `qwen:7b`, then falls back to the deterministic StackMap summary. AI status, model failures, attempted models, and local model availability never affect audit pass/fail.
 
-Use audit mode in CI when you want a deterministic readiness gate:
+## AI Debug Mode
+
+Use `--ai-debug` to inspect the local prompt, factsheet, and model responses:
 
 ```sh
-go run ./cmd/stackmap audit .
-go run ./cmd/stackmap audit . --json
-go run ./cmd/stackmap audit . --allow-missing-tests
-go run ./cmd/stackmap audit . --allow-medium
-go run ./cmd/stackmap audit . --fail-on-low
+stackmap analyze . --ai-debug
 ```
 
-Audit mode exports the same `.stackmap/analysis.json` and Markdown report as `analyze --no-tui`. It is deterministic, does not require AI, and exits non-zero when deployment-readiness blockers are found: high findings, medium findings, missing stack detection, missing tests, env var usage without `.env.example`, or a backend/API deployment surface without a health endpoint. Low and info findings do not fail audit by default.
+Diagnostics are written under `.stackmap/ai-debug/`. Debug mode is for troubleshooting local Ollama behavior; StackMap still avoids reading `.env` values.
 
-Health endpoints are required when StackMap detects backend/API surfaces such as extracted API routes or backend server frameworks. Static frontend apps deployed to a target such as Vercel receive a warning, not a failure, when no health endpoint is found. A stricter health policy can be added later if a project wants every deployment target to expose one.
+## GitHub Actions
 
-Use `--allow-medium` to treat medium findings as warnings, `--allow-missing-tests` to treat missing tests as a warning, and `--fail-on-low` to make low findings block the audit. Optional local AI content can be included in reports with `--ai`, but AI status, model failures, attempted models, and local model availability never affect the audit exit code.
+This is intentionally simple. It runs the deterministic audit from source and lets the command exit code decide the job result.
+
+```yaml
+name: StackMap Audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go run ./cmd/stackmap audit .
+```
+
+Use `--allow-missing-tests` or `--allow-medium` only when that tradeoff is intentional for the repository.
+
+## Limitations and Tradeoffs
+
+- StackMap uses static heuristics, not full program execution.
+- It does not run project build, test, install, or migration commands.
+- Local AI quality depends on installed Ollama models.
+- AI notes are report-only and never determine audit pass/fail.
+- Frontend-only apps may not need health endpoints; StackMap warns instead of failing when no backend/API surface is detected.
+- Some framework, route, deployment, and monorepo detection will need future expansion.
+- Findings are intentionally conservative, so StackMap may miss project-specific readiness issues.
 
 ## Not Included Yet
 
