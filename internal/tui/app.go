@@ -413,6 +413,19 @@ func aiStatus(ai *models.AISummary) string {
 	if ai == nil {
 		return "AI: disabled"
 	}
+	switch ai.Status {
+	case "generated_structured", "generated_text":
+		if ai.Model != "" {
+			return "AI: summary generated with " + ai.Model
+		}
+		return "AI: summary generated"
+	case "fallback_empty":
+		return "AI: returned no usable text"
+	case "fallback_irrelevant":
+		return "AI: returned unrelated text"
+	case "fallback_model_unavailable":
+		return "AI: requested but unavailable"
+	}
 	if ai.Warning != "" {
 		if strings.Contains(strings.ToLower(ai.Warning), "empty response") {
 			return "AI: returned no usable text"

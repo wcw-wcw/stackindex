@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -15,7 +17,8 @@ import (
 	"github.com/will/stackmap/internal/models"
 )
 
-const DefaultModel = "qwen2.5-coder:7b"
+const DefaultModel = "llama3.2:3b"
+const FallbackModel = "qwen:7b"
 
 const (
 	defaultBaseURL = "http://127.0.0.1:11434"
@@ -35,6 +38,15 @@ const (
 	relevanceLowConfidence = "low_confidence"
 )
 
+const (
+	statusGeneratedStructured      = "generated_structured"
+	statusGeneratedText            = "generated_text"
+	statusFallbackModelUnavailable = "fallback_model_unavailable"
+	statusFallbackIrrelevant       = "fallback_irrelevant"
+	statusFallbackEmpty            = "fallback_empty"
+	statusFallbackParseFailed      = "fallback_parse_failed"
+)
+
 type OllamaClient struct {
 	BaseURL string
 	Model   string
@@ -42,10 +54,11 @@ type OllamaClient struct {
 }
 
 type request struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
-	Format string `json:"format,omitempty"`
+	Model   string                 `json:"model"`
+	Prompt  string                 `json:"prompt"`
+	Stream  bool                   `json:"stream"`
+	Format  string                 `json:"format,omitempty"`
+	Options map[string]interface{} `json:"options,omitempty"`
 }
 
 type response struct {
@@ -142,45 +155,127 @@ type aiJSONResponse struct {
 	RecommendedNextSteps []string `json:"recommendedNextSteps"`
 }
 
+type SummaryOptions struct {
+	DebugDir       string
+	FallbackModels []string
+}
+
+type DebugArtifacts struct {
+	Factsheet       AIFactsheet `json:"factsheet"`
+	Prompt          string      `json:"prompt"`
+	RawResponse     string      `json:"rawResponse,omitempty"`
+	RetryResponse   string      `json:"retryResponse,omitempty"`
+	ParseError      string      `json:"parseError,omitempty"`
+	Relevance       string      `json:"relevance,omitempty"`
+	RelevanceReason string      `json:"relevanceReason,omitempty"`
+	Warning         string      `json:"warning,omitempty"`
+}
+
 func Summarize(ctx context.Context, analysis *models.Analysis, model string) *models.AISummary {
-	if model == "" {
-		model = DefaultModel
+	return SummarizeWithOptions(ctx, analysis, model, SummaryOptions{})
+}
+
+func SummarizeWithOptions(ctx context.Context, analysis *models.Analysis, model string, opts SummaryOptions) *models.AISummary {
+	modelsToTry := modelCandidates(model, opts.FallbackModels)
+	var last *models.AISummary
+	var lastDebug DebugArtifacts
+	var attempted []string
+	for _, candidate := range modelsToTry {
+		attempted = append(attempted, candidate)
+		summary, debug := summarizeOne(ctx, analysis, candidate)
+		summary.AttemptedModels = append([]string{}, attempted...)
+		if isUsableAISummary(summary) {
+			writeDebugIfEnabled(opts.DebugDir, debug, summary)
+			return summary
+		}
+		last = summary
+		lastDebug = debug
 	}
+	if last == nil {
+		last = &models.AISummary{Enabled: true, Model: DefaultModel, AttemptedModels: []string{DefaultModel}, GeneratedAt: time.Now(), Status: statusFallbackEmpty}
+		lastDebug = DebugArtifacts{Factsheet: BuildAIFactsheet(analysis), Prompt: promptFor(analysis)}
+	}
+	last.AttemptedModels = append([]string{}, attempted...)
+	writeDebugIfEnabled(opts.DebugDir, lastDebug, last)
+	return last
+}
+
+func modelCandidates(model string, fallbacks []string) []string {
+	var candidates []string
+	if strings.TrimSpace(model) == "" {
+		candidates = append(candidates, DefaultModel, FallbackModel)
+	} else {
+		candidates = append(candidates, strings.TrimSpace(model))
+	}
+	candidates = append(candidates, fallbacks...)
+	seen := map[string]bool{}
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func summarizeOne(ctx context.Context, analysis *models.Analysis, model string) (*models.AISummary, DebugArtifacts) {
 	client := OllamaClient{
 		BaseURL: defaultBaseURL,
 		Model:   model,
 		Client:  &http.Client{Timeout: 45 * time.Second},
 	}
 	summary := &models.AISummary{Enabled: true, Model: model, GeneratedAt: time.Now()}
+	debug := DebugArtifacts{
+		Factsheet: BuildAIFactsheet(analysis),
+		Prompt:    promptFor(analysis),
+	}
 
 	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	if err := client.CheckAvailable(checkCtx); err != nil {
 		summary.Warning = fmt.Sprintf("AI summary was requested but Ollama was unavailable: %v", err)
-		return summary
+		summary.Status = statusFallbackModelUnavailable
+		debug.Warning = summary.Warning
+		return summary, debug
 	}
 
 	generateCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	text, err := client.Generate(generateCtx, promptFor(analysis))
+	text, err := client.Generate(generateCtx, debug.Prompt)
 	if err != nil {
 		summary.Warning = fmt.Sprintf("AI summary was requested but Ollama failed: %v", err)
-		return summary
+		if strings.Contains(strings.ToLower(err.Error()), "empty response") {
+			summary.Status = statusFallbackEmpty
+		} else {
+			summary.Status = statusFallbackModelUnavailable
+		}
+		debug.Warning = summary.Warning
+		return summary, debug
 	}
+	debug.RawResponse = text
 	applyModelResponse(summary, text, analysis)
-	if summary.ParseError != "" {
+	if !isUsableAISummary(summary) {
 		refineCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
-		refineText, err := client.Generate(refineCtx, refinementPromptFor(analysis, text))
+		refineText, err := client.Generate(refineCtx, refinementPromptFor(analysis, text, summary.RelevanceReason))
 		if err == nil {
+			debug.RetryResponse = refineText
 			refined := &models.AISummary{Enabled: true, Model: model, GeneratedAt: summary.GeneratedAt}
 			applyModelResponse(refined, refineText, analysis)
-			if refined.ParseError == "" && refined.Relevance != relevanceLowConfidence {
+			if isUsableAISummary(refined) {
 				*summary = *refined
+			} else {
+				summary.RetryRawText = cleanRawResponse(refineText)
 			}
 		}
 	}
-	return summary
+	debug.ParseError = summary.ParseError
+	debug.Relevance = summary.Relevance
+	debug.RelevanceReason = summary.RelevanceReason
+	return summary, debug
 }
 
 func (c OllamaClient) CheckAvailable(ctx context.Context) error {
@@ -206,7 +301,15 @@ func (c OllamaClient) Generate(ctx context.Context, prompt string) (string, erro
 	if c.Client == nil {
 		c.Client = &http.Client{Timeout: 45 * time.Second}
 	}
-	body, err := json.Marshal(request{Model: c.Model, Prompt: prompt, Stream: false, Format: "json"})
+	body, err := json.Marshal(request{
+		Model:  c.Model,
+		Prompt: prompt,
+		Stream: false,
+		Options: map[string]interface{}{
+			"temperature": 0,
+			"top_p":       0.2,
+		},
+	})
 	if err != nil {
 		return "", err
 	}
@@ -239,6 +342,129 @@ func (c OllamaClient) Generate(ctx context.Context, prompt string) (string, erro
 		return "", errors.New("ollama returned an empty response")
 	}
 	return text, nil
+}
+
+func writeDebugIfEnabled(debugDir string, artifacts DebugArtifacts, summary *models.AISummary) {
+	if strings.TrimSpace(debugDir) == "" {
+		return
+	}
+	if summary != nil {
+		if artifacts.ParseError == "" {
+			artifacts.ParseError = summary.ParseError
+		}
+		if artifacts.Relevance == "" {
+			artifacts.Relevance = summary.Relevance
+		}
+		if artifacts.RelevanceReason == "" {
+			artifacts.RelevanceReason = summary.RelevanceReason
+		}
+		if artifacts.Warning == "" {
+			artifacts.Warning = summary.Warning
+		}
+	}
+	_ = WriteDebugFiles(debugDir, artifacts)
+}
+
+func WriteDebugFiles(debugDir string, artifacts DebugArtifacts) error {
+	if strings.TrimSpace(debugDir) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(debugDir, 0755); err != nil {
+		return err
+	}
+	for _, name := range debugArtifactFileNames() {
+		_ = os.Remove(filepath.Join(debugDir, name))
+	}
+	factsheet, err := json.MarshalIndent(artifacts.Factsheet, "", "  ")
+	if err != nil {
+		return err
+	}
+	files := map[string]string{
+		"factsheet.json": string(factsheet) + "\n",
+		"factsheet.txt":  factsheetText(artifacts.Factsheet),
+		"prompt.txt":     artifacts.Prompt,
+	}
+	if artifacts.RawResponse != "" {
+		files["raw-response.txt"] = artifacts.RawResponse
+	}
+	if artifacts.RetryResponse != "" {
+		files["retry-response.txt"] = artifacts.RetryResponse
+	}
+	if artifacts.ParseError != "" {
+		files["parse-error.txt"] = artifacts.ParseError + "\n"
+	}
+	relevance := artifacts.Relevance
+	if relevance == "" {
+		relevance = "not_evaluated"
+	}
+	data, err := json.MarshalIndent(map[string]string{
+		"relevance":       relevance,
+		"relevanceReason": artifacts.RelevanceReason,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	files["relevance-result.json"] = string(data) + "\n"
+	if artifacts.Warning != "" {
+		files["warning.txt"] = artifacts.Warning + "\n"
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(debugDir, name), []byte(sanitizeDebugContent(content)), 0644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func debugArtifactFileNames() []string {
+	return []string{
+		"factsheet.json",
+		"factsheet.txt",
+		"prompt.txt",
+		"raw-response.txt",
+		"retry-response.txt",
+		"parse-error.txt",
+		"relevance-result.json",
+		"warning.txt",
+	}
+}
+
+func factsheetText(f AIFactsheet) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Repository: %s\n", f.RepositoryName)
+	fmt.Fprintf(&b, "Scanned path: %s\n", f.ScannedPath)
+	fmt.Fprintf(&b, "Files scanned: %d\n", f.FilesScanned)
+	fmt.Fprintf(&b, "Languages: %s\n", strings.Join(f.DetectedStack.Languages, ", "))
+	fmt.Fprintf(&b, "Frameworks: %s\n", strings.Join(f.DetectedStack.Frameworks, ", "))
+	fmt.Fprintf(&b, "Databases: %s\n", strings.Join(f.DetectedStack.Databases, ", "))
+	fmt.Fprintf(&b, "Testing: %s\n", strings.Join(f.DetectedStack.TestingFrameworks, ", "))
+	fmt.Fprintf(&b, "Deployment: %s\n", strings.Join(f.DetectedStack.DeploymentTargets, ", "))
+	fmt.Fprintf(&b, "Tests present: %t\n", f.HealthSummary.TestsPresent)
+	fmt.Fprintf(&b, "Health endpoint present: %t\n", f.HealthSummary.HealthEndpointPresent)
+	fmt.Fprintf(&b, "Env example present: %t\n", f.HealthSummary.EnvExamplePresent)
+	fmt.Fprintf(&b, "Migration files present: %t\n", f.HealthSummary.MigrationFilesPresent)
+	fmt.Fprintf(&b, "Deployment docs present: %t\n", f.HealthSummary.DeploymentDocsPresent)
+	fmt.Fprintf(&b, "Findings total: %d\n", f.FindingsTotal)
+	return b.String()
+}
+
+func sanitizeDebugContent(content string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		lines[i] = sanitizeDebugLine(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sanitizeDebugLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "}") || strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "]") {
+		return line
+	}
+	if eq := strings.Index(line, "="); eq > 0 && !strings.Contains(line[:eq], " ") {
+		return line[:eq+1] + "[redacted]"
+	}
+	return line
 }
 
 func BuildAIFactsheet(a *models.Analysis) AIFactsheet {
@@ -302,58 +528,39 @@ func promptFor(a *models.Analysis) string {
 	data, _ := json.MarshalIndent(BuildAIFactsheet(a), "", "  ")
 	return `You are StackMap, a local-only software engineering documentation assistant.
 
-Return only valid JSON. Do not wrap the response in Markdown. Do not use code fences.
-You are summarizing the StackMap analysis factsheet below, not answering questions about individual file paths.
+Write a concise plain-language project summary for a StackMap report. Do not return JSON.
+Use this exact shape:
+One short paragraph, then 2 to 4 Markdown bullets.
+
+You are summarizing only the StackMap analysis factsheet below, not answering questions about individual file paths.
 Do not explain Unix paths, source files, package names, or general programming concepts.
 Do not list or define environment variables.
-Use only the provided factsheet. Do not invent features, services, routes, dependencies, or deployment behavior. Do not claim to have read source files. Keep every value concise and practical.
+Use only the provided factsheet. Do not invent architecture, services, security issues, routes, dependencies, migrations, databases, monorepo structure, or deployment behavior. Do not claim to have read source files.
 Mention the detected project type and concrete stack when available, such as languages, frameworks, databases, testing tools, and deployment targets.
-At least one output field must mention an exact detected stack term from the factsheet, for example a language, framework, database, testing tool, or deployment target.
-Fill the fields with concrete content from the analysis. Do not return empty strings. Do not return placeholder values. When the analysis supports it, include 2 to 5 concise string items in each array.
-
-Every field is required. Arrays must contain strings only. Return this exact JSON schema:
-{
-  "projectSummary": "string",
-  "architectureOverview": "string",
-  "keyStrengths": ["string"],
-  "potentialRisks": ["string"],
-  "recommendedNextSteps": ["string"]
-}
-
-Example of valid output:
-{
-  "projectSummary": "shop-demo is a Next.js and React web app with PostgreSQL integration and Vercel deployment signals.",
-  "architectureOverview": "The app uses Next.js routes for HTTP APIs, package scripts for build/test workflows, and deployment readiness checks for env examples and health endpoints.",
-  "keyStrengths": ["Next.js API routes are detected", "PostgreSQL and Vercel are explicitly identified"],
-  "potentialRisks": ["Document any missing required environment variables before deployment"],
-  "recommendedNextSteps": ["Run the detected Vitest test script before release", "Keep Vercel deployment notes current"]
-}
+Mention at least one exact detected stack term from the factsheet, for example a language, framework, database, testing tool, or deployment target.
+Keep the summary practical and bounded. Avoid generic advice unless it is supported by findings in the factsheet.
 
 StackMap analysis factsheet:
 ` + string(data)
 }
 
-func refinementPromptFor(a *models.Analysis, previous string) string {
+func refinementPromptFor(a *models.Analysis, previous, reason string) string {
 	data, _ := json.MarshalIndent(BuildAIFactsheet(a), "", "  ")
-	return `Your previous response could not be parsed as the required StackMap JSON summary.
+	if strings.TrimSpace(reason) == "" {
+		reason = "The previous response was missing, irrelevant, or included unsupported details."
+	}
+	return `Your previous response was not usable as StackMap local AI notes.
 
-Return only valid JSON. Do not wrap the response in Markdown. Do not use code fences. Do not include explanations.
-You are summarizing the StackMap analysis factsheet below, not answering questions about individual file paths.
+Rewrite it as concise plain text or Markdown. Do not return JSON.
+Use this exact shape: one short paragraph, then 2 to 4 Markdown bullets.
+You are summarizing only the StackMap analysis factsheet below, not answering questions about individual file paths.
 Do not explain Unix paths, source files, package names, or general programming concepts.
 Do not list or define environment variables.
-Every field is required. Arrays must contain strings only. Keep values concise. Use only the factsheet below and do not invent details.
-Mention the detected project type and concrete stack when available.
-At least one output field must mention an exact detected stack term from the factsheet, for example a language, framework, database, testing tool, or deployment target.
-Fill the fields with concrete content from the analysis. Do not return empty strings. Do not return placeholder values. When the analysis supports it, include 2 to 5 concise string items in each array.
+Use only the factsheet below and do not invent architecture, services, security issues, routes, dependencies, migrations, databases, monorepo structure, or deployment behavior.
+Mention at least one exact detected stack term from the factsheet.
 
-Required schema:
-{
-  "projectSummary": "string",
-  "architectureOverview": "string",
-  "keyStrengths": ["string"],
-  "potentialRisks": ["string"],
-  "recommendedNextSteps": ["string"]
-}
+Why the previous response was rejected:
+` + capText(reason, 500) + `
 
 Previous invalid response, for context only:
 ` + capText(previous, 1200) + `
@@ -363,11 +570,12 @@ StackMap analysis factsheet:
 }
 
 func applyModelResponse(summary *models.AISummary, text string, analysis *models.Analysis) {
+	cleaned := cleanRawResponse(text)
+	summary.RawText = cleaned
 	parsed, err := ParseModelResponse(text)
 	if err != nil {
-		summary.RawText = cleanRawResponse(text)
 		summary.ParseError = err.Error()
-		markRelevance(summary, summary.RawText, analysis)
+		applyPlainTextResponse(summary, cleaned, analysis)
 		return
 	}
 	summary.ProjectSummary = parsed.ProjectSummary
@@ -376,6 +584,39 @@ func applyModelResponse(summary *models.AISummary, text string, analysis *models
 	summary.PotentialRisks = parsed.PotentialRisks
 	summary.RecommendedNextSteps = parsed.RecommendedNextSteps
 	markRelevance(summary, structuredText(summary), analysis)
+	if summary.Relevance != relevanceLowConfidence {
+		markUnsupportedStructuredClaims(summary, analysis)
+	}
+	if summary.Relevance == relevanceLowConfidence {
+		summary.Status = statusFallbackIrrelevant
+		return
+	}
+	summary.Status = statusGeneratedStructured
+}
+
+func applyPlainTextResponse(summary *models.AISummary, text string, analysis *models.Analysis) {
+	text = normalizePlainSummary(text)
+	if strings.TrimSpace(text) == "" {
+		summary.Status = statusFallbackEmpty
+		return
+	}
+	markRelevance(summary, text, analysis)
+	if summary.Relevance != relevanceLowConfidence {
+		markUnsupportedPlainClaims(summary, text, analysis)
+	}
+	if summary.Relevance == relevanceLowConfidence {
+		summary.Status = statusFallbackIrrelevant
+		return
+	}
+	summary.LocalNotes = text
+	summary.Status = statusGeneratedText
+}
+
+func isUsableAISummary(summary *models.AISummary) bool {
+	if summary == nil || summary.Warning != "" || summary.Relevance == relevanceLowConfidence {
+		return false
+	}
+	return summary.Status == statusGeneratedStructured || summary.Status == statusGeneratedText
 }
 
 func ParseModelResponse(text string) (models.AISummary, error) {
@@ -533,6 +774,27 @@ func cleanRawResponse(text string) string {
 	return capText(text, 3000)
 }
 
+func normalizePlainSummary(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	candidates := extractJSONObjects(text)
+	if len(candidates) == 1 && strings.TrimSpace(candidates[0]) == text {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(text), "```json") {
+		return ""
+	}
+	if strings.HasPrefix(text, "```") {
+		lines := strings.Split(text, "\n")
+		if len(lines) >= 2 && strings.HasPrefix(strings.TrimSpace(lines[0]), "```") && strings.TrimSpace(lines[len(lines)-1]) == "```" {
+			text = strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+		}
+	}
+	return capText(text, 2000)
+}
+
 func markRelevance(summary *models.AISummary, text string, analysis *models.Analysis) {
 	if strings.TrimSpace(text) == "" {
 		return
@@ -551,6 +813,131 @@ func markRelevance(summary *models.AISummary, text string, analysis *models.Anal
 	}
 	summary.Relevance = relevancePassed
 	summary.RelevanceReason = fmt.Sprintf("Model output mentioned detected stack term %q.", matched)
+}
+
+func markUnsupportedStructuredClaims(summary *models.AISummary, analysis *models.Analysis) {
+	reason := unsupportedStructuredClaimReason(structuredText(summary), analysis)
+	if reason == "" {
+		return
+	}
+	summary.Relevance = relevanceLowConfidence
+	summary.RelevanceReason = reason
+}
+
+func markUnsupportedPlainClaims(summary *models.AISummary, text string, analysis *models.Analysis) {
+	reason := unsupportedStructuredClaimReason(text, analysis)
+	if reason == "" {
+		return
+	}
+	summary.Relevance = relevanceLowConfidence
+	summary.RelevanceReason = reason
+}
+
+func unsupportedStructuredClaimReason(text string, analysis *models.Analysis) string {
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "microservice") || strings.Contains(lower, "monolithic") || strings.Contains(lower, "server-side rendering") || strings.Contains(lower, "server side rendering") {
+		return "Model output described service topology, but StackMap does not detect service topology."
+	}
+	if strings.Contains(lower, "monorepo") {
+		return "Model output described a monorepo, but StackMap does not detect repository topology."
+	}
+	if mentionsDatabase(lower) && (analysis == nil || len(analysis.Stack.Databases) == 0) {
+		return "Model output mentioned database/storage details, but StackMap did not detect a database or storage layer."
+	}
+	if strings.Contains(lower, "migration") && (analysis == nil || !analysis.Deployment.HasMigrationFiles) {
+		return "Model output mentioned migrations, but StackMap did not detect migration files."
+	}
+	if strings.Contains(lower, "missing migration") && analysis != nil && analysis.Deployment.HasMigrationFiles {
+		return "Model output claimed migration files were missing, but StackMap detected migration files."
+	}
+	if mentionsMissingRequiredEnv(lower) && (analysis == nil || len(analysis.Env.MissingRequiredFromExample) == 0) {
+		return "Model output claimed required environment variables were missing, but StackMap did not detect missing required environment variables."
+	}
+	if mentionsSecurityFinding(lower) && !hasFindingCategory(analysis, "security") {
+		return "Model output mentioned security findings, but StackMap did not detect security findings."
+	}
+	if mentionsTestCoverageClaim(lower) {
+		return "Model output claimed test coverage, but StackMap only detects test files, test scripts, and test tooling."
+	}
+	if mentionsMissingTests(lower) && analysis != nil && (analysis.Tests.HasTestFiles || analysis.Tests.HasTestScript) {
+		return "Model output claimed tests were missing or insufficient, but StackMap detected tests."
+	}
+	if strings.Contains(lower, "strong testing") && (analysis == nil || (!analysis.Tests.HasTestFiles && !analysis.Tests.HasTestScript)) {
+		return "Model output claimed a strong testing posture, but StackMap did not detect tests."
+	}
+	if strings.Contains(lower, "deployment-ready") || strings.Contains(lower, "production-ready") {
+		return "Model output claimed deployment or production readiness, but StackMap only reports readiness signals."
+	}
+	if strings.Contains(lower, "currently deployed") || strings.Contains(lower, "deployed on ") || strings.Contains(lower, "deployed to ") {
+		return "Model output claimed current deployment state, but StackMap only detects deployment targets and configuration signals."
+	}
+	if strings.Contains(lower, "requires ") {
+		return "Model output claimed project requirements, but StackMap only reports detected project facts."
+	}
+	if strings.Contains(lower, "reachable") {
+		return "Model output claimed runtime reachability, but StackMap does not execute or probe the application."
+	}
+	if strings.Contains(lower, "critical nature") || strings.Contains(lower, "mission-critical") || strings.Contains(lower, "business-critical") {
+		return "Model output characterized project criticality, but StackMap does not detect business or operational criticality."
+	}
+	return ""
+}
+
+func mentionsDatabase(lower string) bool {
+	for _, term := range []string{"database", "postgres", "postgresql", "neon", "sqlite", "prisma", "drizzle"} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func mentionsSecurityFinding(lower string) bool {
+	for _, term := range []string{"security header", "security vulnerability", "security vulnerabilities", "security measure", "security measures", "security risk", "security risks", "security issue", "security issues", "security finding", "security findings"} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func mentionsMissingTests(lower string) bool {
+	for _, term := range []string{"no tests", "no test files", "lack of testing", "insufficient testing"} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func mentionsMissingRequiredEnv(lower string) bool {
+	for _, term := range []string{"missing required variable", "missing required environment", "required variable missing", "required environment variable missing"} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func mentionsTestCoverageClaim(lower string) bool {
+	for _, term := range []string{"tested by", "covered by tests", "test coverage", "well-tested", "well tested"} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFindingCategory(analysis *models.Analysis, category string) bool {
+	if analysis == nil {
+		return false
+	}
+	for _, finding := range analysis.Findings {
+		if strings.EqualFold(finding.Category, category) {
+			return true
+		}
+	}
+	return false
 }
 
 func structuredText(summary *models.AISummary) string {

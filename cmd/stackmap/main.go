@@ -18,14 +18,17 @@ const usage = `StackMap - local-first codebase analyzer
 
 Usage:
   stackmap
-  stackmap analyze [path] [--json] [--no-tui] [--ai] [--model qwen2.5-coder:7b]
+  stackmap analyze [path] [--json] [--no-tui] [--ai] [--model llama3.2:3b] [--ai-debug]
   stackmap --help
 
 Examples:
   stackmap analyze .
   stackmap analyze ./path-to-project --no-tui
   stackmap analyze . --json
-  stackmap analyze . --ai --model qwen2.5-coder:7b
+  stackmap analyze . --ai --model llama3.2:3b
+
+Local Ollama model behavior varies. By default StackMap tries llama3.2:3b,
+then qwen:7b, then the deterministic StackMap summary.
 `
 
 func main() {
@@ -57,7 +60,8 @@ func analyze(args []string) error {
 	jsonOut := fs.Bool("json", false, "print JSON to stdout without launching TUI")
 	noTUI := fs.Bool("no-tui", false, "run analysis and export reports without launching TUI")
 	enableAI := fs.Bool("ai", false, "enable optional local Ollama analysis")
-	model := fs.String("model", ai.DefaultModel, "Ollama model to use when --ai is enabled")
+	aiDebug := fs.Bool("ai-debug", false, "write local AI prompt/response diagnostics under .stackmap/ai-debug")
+	model := fs.String("model", "", "Ollama model to use when --ai is enabled; default tries llama3.2:3b then qwen:7b")
 	if err := fs.Parse(normalizeAnalyzeArgs(args)); err != nil {
 		return err
 	}
@@ -76,7 +80,11 @@ func analyze(args []string) error {
 		return err
 	}
 	if *enableAI {
-		analysis.AI = ai.Summarize(context.Background(), analysis, *model)
+		opts := ai.SummaryOptions{}
+		if *aiDebug {
+			opts.DebugDir = filepath.Join(root, ".stackmap", "ai-debug")
+		}
+		analysis.AI = ai.SummarizeWithOptions(context.Background(), analysis, *model, opts)
 		if analysis.AI.Warning != "" {
 			fmt.Fprintf(os.Stderr, "stackmap: %s\n", analysis.AI.Warning)
 		}
@@ -115,7 +123,7 @@ func normalizeAnalyzeArgs(args []string) []string {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {
-		case "--json", "--no-tui", "--ai", "-json", "-no-tui", "-ai":
+		case "--json", "--no-tui", "--ai", "--ai-debug", "-json", "-no-tui", "-ai", "-ai-debug":
 			flags = append(flags, arg)
 		case "--model", "-model":
 			flags = append(flags, arg)

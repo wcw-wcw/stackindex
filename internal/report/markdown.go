@@ -32,7 +32,7 @@ func Markdown(a *models.Analysis) string {
 	fmt.Fprintf(&b, "## Project Summary\n\n")
 	fmt.Fprintf(&b, "- Repository: `%s`\n- Path: `%s`\n- Files scanned: %d\n- Findings: %s\n\n", a.RepoName, a.RepoPath, len(a.Files), findingSummary(a.Findings))
 
-	writeAIProjectSummary(&b, a.AI)
+	writeAIProjectSummary(&b, a)
 
 	fmt.Fprintf(&b, "## Top Recommended Fixes\n\n")
 	writeTopFixes(&b, a)
@@ -81,7 +81,7 @@ func Markdown(a *models.Analysis) string {
 		writeEnvGroup(&b, "Optional app config", a.Env.UsedVars, "optional_app_config")
 		writeEnvGroup(&b, "Platform/build metadata", a.Env.UsedVars, "platform_provided", "build_metadata")
 		writeEnvGroup(&b, "Script-only vars", a.Env.UsedVars, "test_or_script_only")
-		writeNameList(&b, "Missing from .env.example", a.Env.MissingFromExample)
+		writeNameList(&b, "Missing required from .env.example", a.Env.MissingRequiredFromExample)
 		fmt.Fprintln(&b)
 	}
 
@@ -139,44 +139,40 @@ func Markdown(a *models.Analysis) string {
 	return b.String()
 }
 
-func writeAIProjectSummary(b *strings.Builder, ai *models.AISummary) {
+func writeAIProjectSummary(b *strings.Builder, a *models.Analysis) {
+	ai := a.AI
 	if ai == nil {
 		return
 	}
 	fmt.Fprintf(b, "## AI Project Summary\n\n")
-	if ai.Warning != "" {
-		fmt.Fprintln(b, "AI summary was requested but Ollama was unavailable or did not return a usable summary.")
+	fmt.Fprintln(b, DeterministicAISummary(a))
+	fmt.Fprintln(b)
+	if hasUsableLocalNotes(ai) {
+		fmt.Fprintln(b, "### Local AI Notes")
+		fmt.Fprintln(b)
+		fmt.Fprintln(b, strings.TrimSpace(ai.LocalNotes))
 		fmt.Fprintln(b)
 		return
 	}
-	if ai.Relevance == "low_confidence" {
-		fmt.Fprintln(b, "The local model returned text, but it did not appear related to this StackMap analysis.")
+	if hasStructuredAISummary(ai) && ai.Relevance != "low_confidence" && ai.Warning == "" {
+		fmt.Fprintln(b, "### Local AI Notes")
 		fmt.Fprintln(b)
+		writeTextSection(b, "Summary", ai.ProjectSummary)
+		writeTextSection(b, "Architecture Overview", ai.ArchitectureOverview)
+		writeBulletSection(b, "Key Strengths", ai.KeyStrengths)
+		writeBulletSection(b, "Potential Risks", ai.PotentialRisks)
+		writeBulletSection(b, "Recommended Next Steps", ai.RecommendedNextSteps)
 		return
 	}
-	if ai.ParseError != "" || !hasStructuredAISummary(ai) {
-		fmt.Fprintf(b, "AI summary was requested with `%s`, but StackMap could not parse the model response as structured JSON.\n\n", fallbackText(ai.Model, "the selected model"))
-		raw := strings.TrimSpace(ai.RawText)
-		if raw == "" {
-			fmt.Fprintln(b, "No usable AI summary text was returned by the model.")
-			fmt.Fprintln(b)
-			return
-		}
-		fmt.Fprintln(b, "### Raw Model Summary")
-		fmt.Fprintln(b)
-		writeIndentedBlock(b, raw)
-		return
-	}
-	fmt.Fprintf(b, "Generated locally with `%s`.\n\n", ai.Model)
-	writeTextSection(b, "Summary", ai.ProjectSummary)
-	writeTextSection(b, "Architecture Overview", ai.ArchitectureOverview)
-	writeBulletSection(b, "Key Strengths", ai.KeyStrengths)
-	writeBulletSection(b, "Potential Risks", ai.PotentialRisks)
-	writeBulletSection(b, "Recommended Next Steps", ai.RecommendedNextSteps)
+	fmt.Fprintf(b, "Local AI summary unavailable: %s did not return usable project-summary text.\n\n", aiModelText(ai))
 }
 
 func hasStructuredAISummary(ai *models.AISummary) bool {
 	return ai.ProjectSummary != "" || ai.ArchitectureOverview != "" || len(ai.KeyStrengths)+len(ai.PotentialRisks)+len(ai.RecommendedNextSteps) > 0
+}
+
+func hasUsableLocalNotes(ai *models.AISummary) bool {
+	return ai != nil && strings.TrimSpace(ai.LocalNotes) != "" && ai.Relevance != "low_confidence" && ai.Warning == ""
 }
 
 func writeTextSection(b *strings.Builder, label, value string) {
@@ -196,6 +192,55 @@ func writeBulletSection(b *strings.Builder, label string, items []string) {
 		fmt.Fprintf(b, "- %s\n", item)
 	}
 	fmt.Fprintln(b)
+}
+
+func writeDeterministicAIFallback(b *strings.Builder, a *models.Analysis, ai *models.AISummary) {
+	fmt.Fprintln(b, DeterministicAISummary(a))
+	fmt.Fprintln(b)
+	fmt.Fprintf(b, "Local AI summary unavailable: %s did not return usable project-summary text.\n\n", aiModelText(ai))
+}
+
+func DeterministicAISummary(a *models.Analysis) string {
+	stackTerms := compactStackTerms(a.Stack)
+	projectType := deterministicProjectType(a.Stack)
+	stackPhrase := "a local codebase"
+	if projectType != "" && len(stackTerms) > 0 {
+		stackPhrase = fmt.Sprintf("%s using %s", projectType, humanJoin(stackTerms))
+	} else if projectType != "" {
+		stackPhrase = projectType
+	} else if len(stackTerms) > 0 {
+		stackPhrase = "a project using " + humanJoin(stackTerms)
+	}
+	parts := []string{fmt.Sprintf("StackMap detected this as %s.", withArticle(stackPhrase))}
+	var readiness []string
+	if a.Tests.HasTestFiles || a.Tests.HasTestScript {
+		readiness = append(readiness, "tests")
+	}
+	if a.Deployment.HasHealthEndpoint {
+		readiness = append(readiness, "health endpoints")
+	}
+	if a.Deployment.HasMigrationFiles {
+		readiness = append(readiness, "migration files")
+	}
+	if a.Deployment.ReadmeMentionsDeploy {
+		readiness = append(readiness, "deployment docs")
+	}
+	if a.Deployment.HasEnvExample {
+		readiness = append(readiness, "an env example")
+	}
+	if len(readiness) > 0 {
+		verb := "are"
+		if len(readiness) == 1 {
+			verb = "is"
+		}
+		parts = append(parts, "The project appears deployment-aware: "+humanJoin(readiness)+" "+verb+" present.")
+	}
+	if len(a.Findings) == 0 {
+		parts = append(parts, "No actionable findings were detected.")
+	} else {
+		parts = append(parts, fmt.Sprintf("StackMap found %s worth reviewing.", findingSummary(a.Findings)))
+	}
+	return strings.Join(parts, " ")
 }
 
 func writeIndentedBlock(b *strings.Builder, text string) {
@@ -267,6 +312,54 @@ func findingSummary(findings []models.Finding) string {
 	return fmt.Sprintf("%d high, %d medium, %d low, %d info", counts[models.SeverityHigh], counts[models.SeverityMedium], counts[models.SeverityLow], counts[models.SeverityInfo])
 }
 
+func compactStackTerms(stack models.StackInfo) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, group := range [][]string{stack.Frameworks, stack.Languages, stack.Databases, stack.Testing, stack.Deployment} {
+		for _, term := range group {
+			term = strings.TrimSpace(term)
+			if term == "" {
+				continue
+			}
+			key := strings.ToLower(term)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, term)
+			if len(out) == 8 {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func deterministicProjectType(stack models.StackInfo) string {
+	frameworks := strings.ToLower(strings.Join(stack.Frameworks, " "))
+	languages := strings.ToLower(strings.Join(stack.Languages, " "))
+	switch {
+	case strings.Contains(frameworks, "next.js") && strings.Contains(frameworks, "react"):
+		return "a Next.js/React application"
+	case strings.Contains(frameworks, "next.js"):
+		return "a Next.js application"
+	case strings.Contains(frameworks, "vite") && strings.Contains(frameworks, "react"):
+		return "a Vite/React application"
+	case strings.Contains(frameworks, "vite"):
+		return "a Vite application"
+	case strings.Contains(frameworks, "react"):
+		return "a React application"
+	case strings.Contains(frameworks, "express"):
+		return "an Express application"
+	case strings.Contains(languages, "go"):
+		return "a Go application"
+	case strings.Contains(languages, "typescript") || strings.Contains(languages, "javascript"):
+		return "a TypeScript/JavaScript application"
+	default:
+		return ""
+	}
+}
+
 func stackDetected(stack models.StackInfo) bool {
 	return len(stack.Languages)+len(stack.Frameworks)+len(stack.Libraries)+len(stack.Databases)+len(stack.Testing)+len(stack.Deployment) > 0
 }
@@ -312,11 +405,53 @@ func present(ok bool) string {
 	return "no"
 }
 
-func fallbackText(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
+func withArticle(phrase string) string {
+	if strings.HasPrefix(phrase, "a ") || strings.HasPrefix(phrase, "an ") || strings.HasPrefix(phrase, "the ") {
+		return phrase
 	}
-	return value
+	if phrase == "" {
+		return "a local codebase"
+	}
+	switch strings.ToLower(phrase[:1]) {
+	case "a", "e", "i", "o", "u":
+		return "an " + phrase
+	default:
+		return "a " + phrase
+	}
+}
+
+func humanJoin(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " and " + items[1]
+	default:
+		return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
+	}
+}
+
+func aiModelText(ai *models.AISummary) string {
+	if ai == nil {
+		return "the selected model"
+	}
+	models := ai.AttemptedModels
+	if len(models) == 0 && strings.TrimSpace(ai.Model) != "" {
+		models = []string{ai.Model}
+	}
+	if len(models) == 0 {
+		return "the selected model"
+	}
+	quoted := make([]string, 0, len(models))
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model != "" {
+			quoted = append(quoted, "`"+model+"`")
+		}
+	}
+	return humanJoin(quoted)
 }
 
 func sortedKeys(m map[string]string) []string {

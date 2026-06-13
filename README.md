@@ -69,13 +69,16 @@ AI is disabled by default. To enable local Ollama analysis:
 
 ```sh
 ollama serve
-ollama pull qwen2.5-coder:7b
-go run ./cmd/stackmap analyze . --ai --model qwen2.5-coder:7b
+ollama pull llama3.2:3b
+ollama pull qwen:7b
+go run ./cmd/stackmap analyze . --ai
 ```
 
-When enabled, StackMap sends only a compact structured summary of the deterministic analysis to the local Ollama server. It does not send the entire repository or `.env` files.
+When enabled, StackMap sends only a compact factsheet of the deterministic analysis to the local Ollama server. It does not send the entire repository or `.env` files.
 
 If Ollama is unavailable, StackMap records a friendly warning and continues with static analysis.
+
+Local model behavior varies. By default StackMap tries `llama3.2:3b`, then `qwen:7b`, then falls back to the deterministic StackMap summary. To force one model, pass `--model <name>`. To inspect the local prompt and model responses for troubleshooting, run with `--ai-debug`; StackMap writes diagnostics under `.stackmap/ai-debug/` without reading `.env` values.
 
 ## Not Included Yet
 

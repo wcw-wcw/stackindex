@@ -57,6 +57,8 @@ func addDepStack(pkg *models.PackageInfo, stack *models.StackInfo) {
 			stack.Frameworks = appendUnique(stack.Frameworks, "Tailwind CSS")
 		case "pg":
 			stack.Databases = appendUnique(stack.Databases, "PostgreSQL")
+		case "@neondatabase/serverless":
+			stack.Databases = appendUnique(stack.Databases, "Neon Postgres")
 		case "prisma":
 			stack.Databases = appendUnique(stack.Databases, "Prisma")
 		case "drizzle-orm":

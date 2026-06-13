@@ -24,7 +24,8 @@ func TestMarkdownRendersStructuredAISummary(t *testing.T) {
 	out := Markdown(analysis)
 	for _, want := range []string{
 		"## AI Project Summary",
-		"Generated locally with `qwen:7b`.",
+		"StackMap detected this as a Go application using Go.",
+		"### Local AI Notes",
 		"### Summary",
 		"A local-first analyzer.",
 		"### Architecture Overview",
@@ -50,26 +51,25 @@ func TestMarkdownRendersGracefulAIFallback(t *testing.T) {
 		RawText:    "Helpful prose, but not JSON.\n```json\n{}\n```",
 		ParseError: "invalid character",
 		Relevance:  "passed",
+		Status:     "fallback_parse_failed",
 	}
 
 	out := Markdown(analysis)
 	for _, want := range []string{
-		"AI summary was requested with `qwen:7b`, but StackMap could not parse the model response as structured JSON.",
-		"### Raw Model Summary",
-		"    Helpful prose, but not JSON.",
-		"    ~~~json",
+		"StackMap detected this as a Go application using Go.",
+		"Local AI summary unavailable: `qwen:7b` did not return usable project-summary text.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "```") {
-		t.Fatalf("fallback emitted a code fence:\n%s", out)
+	if strings.Contains(out, "could not parse structured JSON") || strings.Contains(out, "### Raw Model Summary") || strings.Contains(out, "```") {
+		t.Fatalf("fallback rendered parse/debug text:\n%s", out)
 	}
 }
 
 func TestMarkdownDoesNotRenderIrrelevantUnixPathExplanationAsMainAISummary(t *testing.T) {
-	analysis := baseAnalysis()
+	analysis := richAnalysis()
 	analysis.AI = &models.AISummary{
 		Enabled:         true,
 		Model:           "qwen:7b",
@@ -80,11 +80,35 @@ func TestMarkdownDoesNotRenderIrrelevantUnixPathExplanationAsMainAISummary(t *te
 	}
 
 	out := Markdown(analysis)
-	if !strings.Contains(out, "The local model returned text, but it did not appear related to this StackMap analysis.") {
-		t.Fatalf("Markdown did not render unrelated-message fallback:\n%s", out)
+	for _, want := range []string{
+		"StackMap detected this as a Next.js/React application",
+		"TypeScript",
+		"PostgreSQL",
+		"Local AI summary unavailable: `qwen:7b` did not return usable project-summary text.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
 	}
 	if strings.Contains(out, "valid path in Unix-like systems") || strings.Contains(out, "### Raw Model Summary") {
 		t.Fatalf("Markdown rendered irrelevant raw model rambling:\n%s", out)
+	}
+}
+
+func TestMarkdownUnavailableMessageListsAttemptedModels(t *testing.T) {
+	analysis := richAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled:         true,
+		Model:           "qwen:7b",
+		AttemptedModels: []string{"llama3.2:3b", "qwen:7b"},
+		Relevance:       "low_confidence",
+		Status:          "fallback_irrelevant",
+	}
+
+	out := Markdown(analysis)
+	want := "Local AI summary unavailable: `llama3.2:3b` and `qwen:7b` did not return usable project-summary text."
+	if !strings.Contains(out, want) {
+		t.Fatalf("Markdown did not list attempted models; want %q:\n%s", want, out)
 	}
 }
 
@@ -93,19 +117,72 @@ func TestMarkdownRendersRelevantRawFallback(t *testing.T) {
 	analysis.AI = &models.AISummary{
 		Enabled:    true,
 		Model:      "qwen:7b",
+		LocalNotes: "This Go CLI analyzes repositories and writes local StackMap reports.",
 		RawText:    "This Go CLI analyzes repositories and writes local StackMap reports.",
 		ParseError: "response did not contain a JSON object",
 		Relevance:  "passed",
+		Status:     "generated_text",
 	}
 
 	out := Markdown(analysis)
-	if !strings.Contains(out, "### Raw Model Summary") || !strings.Contains(out, "This Go CLI analyzes repositories") {
-		t.Fatalf("Markdown did not render relevant raw fallback:\n%s", out)
+	if !strings.Contains(out, "### Local AI Notes") || !strings.Contains(out, "This Go CLI analyzes repositories") {
+		t.Fatalf("Markdown did not render relevant local AI notes:\n%s", out)
+	}
+	if !strings.Contains(out, "StackMap detected this as a Go application using Go.") {
+		t.Fatalf("Markdown did not render deterministic summary before local notes:\n%s", out)
+	}
+}
+
+func TestMarkdownRendersRelevantMarkdownBulletAINotes(t *testing.T) {
+	analysis := richAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled: true,
+		Model:   "llama3.2:3b",
+		LocalNotes: "This TypeScript Next.js/React app has PostgreSQL and Vercel signals in the StackMap factsheet.\n\n" +
+			"- Vitest is detected for testing.\n" +
+			"- Migration files and an env example are present.",
+		RawText:   "same",
+		Relevance: "passed",
+		Status:    "generated_text",
+	}
+
+	out := Markdown(analysis)
+	for _, want := range []string{
+		"StackMap detected this as a Next.js/React application",
+		"### Local AI Notes",
+		"This TypeScript Next.js/React app has PostgreSQL and Vercel signals",
+		"- Vitest is detected for testing.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestMarkdownSuppressesUnsupportedOverclaimText(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled:         true,
+		Model:           "llama3.2:3b",
+		LocalNotes:      "",
+		RawText:         "This Go app has a PostgreSQL database and microservices architecture.",
+		ParseError:      "response did not contain a JSON object",
+		Relevance:       "low_confidence",
+		RelevanceReason: "Model output described service topology, but StackMap does not detect service topology.",
+		Status:          "fallback_irrelevant",
+	}
+
+	out := Markdown(analysis)
+	if !strings.Contains(out, "Local AI summary unavailable: `llama3.2:3b` did not return usable project-summary text.") {
+		t.Fatalf("Markdown did not render unavailable text:\n%s", out)
+	}
+	if strings.Contains(out, "PostgreSQL database and microservices") {
+		t.Fatalf("Markdown rendered unsupported overclaim text:\n%s", out)
 	}
 }
 
 func TestMarkdownDoesNotEmitEmptyCodeFenceForEmptyAIRawText(t *testing.T) {
-	analysis := baseAnalysis()
+	analysis := richAnalysis()
 	analysis.AI = &models.AISummary{
 		Enabled:    true,
 		Model:      "qwen:7b",
@@ -113,11 +190,79 @@ func TestMarkdownDoesNotEmitEmptyCodeFenceForEmptyAIRawText(t *testing.T) {
 	}
 
 	out := Markdown(analysis)
-	if !strings.Contains(out, "No usable AI summary text was returned by the model.") {
-		t.Fatalf("Markdown did not render no-usable-text fallback:\n%s", out)
+	if !strings.Contains(out, "StackMap detected this as a Next.js/React application") || !strings.Contains(out, "Local AI summary unavailable") {
+		t.Fatalf("Markdown did not render deterministic fallback:\n%s", out)
 	}
 	if strings.Contains(out, "```") || strings.Contains(out, "### Raw Model Summary") {
 		t.Fatalf("empty raw fallback rendered a code fence or raw section:\n%s", out)
+	}
+}
+
+func TestDeterministicAISummaryIncludesDetectedStackTerms(t *testing.T) {
+	out := DeterministicAISummary(richAnalysis())
+	for _, want := range []string{"Next.js", "React", "TypeScript", "PostgreSQL", "Vitest", "Vercel", "health endpoints", "migration files", "No actionable findings"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("DeterministicAISummary did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestDeterministicAISummaryLabelsViteReactWithoutNext(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Stack = models.StackInfo{
+		Languages:  []string{"JavaScript", "TypeScript"},
+		Frameworks: []string{"Vite", "React", "Node.js"},
+		Databases:  []string{"Neon Postgres"},
+		Deployment: []string{"Vercel"},
+	}
+
+	out := DeterministicAISummary(analysis)
+	if !strings.Contains(out, "Vite/React application") {
+		t.Fatalf("DeterministicAISummary did not label Vite/React app:\n%s", out)
+	}
+	if strings.Contains(out, "Next.js/React") {
+		t.Fatalf("DeterministicAISummary incorrectly mentioned Next.js:\n%s", out)
+	}
+}
+
+func TestStructuredAISummaryTakesPrecedenceOverDeterministicFallback(t *testing.T) {
+	analysis := richAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled:              true,
+		Model:                "llama3.2:3b",
+		Relevance:            "passed",
+		ProjectSummary:       "The model summary wins.",
+		ArchitectureOverview: "Model architecture.",
+	}
+
+	out := Markdown(analysis)
+	if !strings.Contains(out, "The model summary wins.") {
+		t.Fatalf("structured summary was not rendered:\n%s", out)
+	}
+	if strings.Contains(out, "Local AI summary unavailable") {
+		t.Fatalf("deterministic fallback rendered over structured summary:\n%s", out)
+	}
+}
+
+func TestMarkdownOnlyListsMissingRequiredEnvVars(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Env = models.EnvAnalysis{
+		UsesEnvVars:                true,
+		MissingFromExample:         []string{"NODE_ENV", "BUILD_TIME", "DATABASE_URL"},
+		MissingRequiredFromExample: []string{"DATABASE_URL"},
+		UsedVars: []models.EnvVar{
+			{Name: "NODE_ENV", Classification: "platform_provided", MissingExample: true},
+			{Name: "BUILD_TIME", Classification: "build_metadata", MissingExample: true},
+			{Name: "DATABASE_URL", Classification: "required_app_config", MissingExample: true},
+		},
+	}
+
+	out := Markdown(analysis)
+	if !strings.Contains(out, "- Missing required from .env.example: `DATABASE_URL`") {
+		t.Fatalf("Markdown did not list required missing env var:\n%s", out)
+	}
+	if strings.Contains(out, "Missing from .env.example") {
+		t.Fatalf("Markdown used old noisy missing env label:\n%s", out)
 	}
 }
 
@@ -131,4 +276,25 @@ func baseAnalysis() *models.Analysis {
 		},
 		Stack: models.StackInfo{Languages: []string{"Go"}},
 	}
+}
+
+func richAnalysis() *models.Analysis {
+	analysis := baseAnalysis()
+	analysis.Stack = models.StackInfo{
+		Languages:  []string{"TypeScript", "JavaScript"},
+		Frameworks: []string{"Next.js", "React"},
+		Databases:  []string{"PostgreSQL"},
+		Testing:    []string{"Vitest"},
+		Deployment: []string{"Vercel"},
+	}
+	analysis.Tests = models.TestAnalysis{HasTestFiles: true, HasTestScript: true, Frameworks: []string{"Vitest"}}
+	analysis.Deployment = models.DeploymentAnalysis{
+		HasReadme:            true,
+		ReadmeMentionsDeploy: true,
+		HasEnvExample:        true,
+		HasHealthEndpoint:    true,
+		HasMigrationFiles:    true,
+		HasVercelConfig:      true,
+	}
+	return analysis
 }

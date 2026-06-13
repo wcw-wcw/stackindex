@@ -63,13 +63,17 @@ type DeploymentAnalysis struct {
 type AISummary struct {
 	Enabled              bool      `json:"enabled"`
 	Model                string    `json:"model,omitempty"`
+	AttemptedModels      []string  `json:"attemptedModels,omitempty"`
 	GeneratedAt          time.Time `json:"generatedAt,omitempty"`
 	ProjectSummary       string    `json:"projectSummary,omitempty"`
 	ArchitectureOverview string    `json:"architectureOverview,omitempty"`
 	KeyStrengths         []string  `json:"keyStrengths,omitempty"`
 	PotentialRisks       []string  `json:"potentialRisks,omitempty"`
 	RecommendedNextSteps []string  `json:"recommendedNextSteps,omitempty"`
+	LocalNotes           string    `json:"localNotes,omitempty"`
+	Status               string    `json:"status,omitempty"`
 	RawText              string    `json:"rawText,omitempty"`
+	RetryRawText         string    `json:"retryRawText,omitempty"`
 	ParseError           string    `json:"parseError,omitempty"`
 	Relevance            string    `json:"relevance,omitempty"`
 	RelevanceReason      string    `json:"relevanceReason,omitempty"`
