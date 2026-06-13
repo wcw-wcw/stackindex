@@ -13,6 +13,7 @@ go run ./cmd/stackmap analyze .
 go run ./cmd/stackmap analyze ./path-to-project
 go run ./cmd/stackmap analyze . --no-tui
 go run ./cmd/stackmap analyze . --json
+go run ./cmd/stackmap audit .
 ```
 
 After building:
@@ -80,6 +81,18 @@ If Ollama is unavailable, StackMap records a friendly warning and continues with
 
 Local model behavior varies. By default StackMap tries `llama3.2:3b`, then `qwen:7b`, then falls back to the deterministic StackMap summary. To force one model, pass `--model <name>`. To inspect the local prompt and model responses for troubleshooting, run with `--ai-debug`; StackMap writes diagnostics under `.stackmap/ai-debug/` without reading `.env` values.
 
+## CI Audit Mode
+
+Use audit mode in CI when you want a deterministic readiness gate:
+
+```sh
+go run ./cmd/stackmap audit .
+go run ./cmd/stackmap audit . --json
+go run ./cmd/stackmap audit . --ai
+```
+
+Audit mode exports the same `.stackmap/analysis.json` and Markdown report as `analyze --no-tui`. It exits non-zero only when the static analyzer finds high or medium findings. Optional local AI content can be included in reports with `--ai`, but AI status, model failures, attempted models, and local model availability never affect the audit exit code.
+
 ## Not Included Yet
 
 - Web app
@@ -98,5 +111,6 @@ go test ./...
 go run ./cmd/stackmap --help
 go run ./cmd/stackmap analyze . --no-tui
 go run ./cmd/stackmap analyze . --json
+go run ./cmd/stackmap audit .
 go run ./cmd/stackmap
 ```
