@@ -266,6 +266,64 @@ func TestMarkdownOnlyListsMissingRequiredEnvVars(t *testing.T) {
 	}
 }
 
+func TestMarkdownAuditResultRendersPassingState(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Audit = &models.AuditResult{
+		Passed:   true,
+		ExitCode: 0,
+		Mode:     "deployment-readiness",
+	}
+
+	out := Markdown(analysis)
+	for _, want := range []string{
+		"## Audit Result",
+		"- Status: passed",
+		"- Exit code: 0",
+		"- Blocking issues: none",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "## AI Project Summary") && strings.Index(out, "## Audit Result") > strings.Index(out, "## AI Project Summary") {
+		t.Fatalf("Audit Result rendered after AI Project Summary:\n%s", out)
+	}
+}
+
+func TestMarkdownAuditResultRendersFailingState(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Audit = &models.AuditResult{
+		Passed:   false,
+		ExitCode: 1,
+		Mode:     "deployment-readiness",
+		Reasons: []string{
+			"Tests were not detected.",
+			"Deployment target detected but no health endpoint was found.",
+		},
+	}
+
+	out := Markdown(analysis)
+	for _, want := range []string{
+		"## Audit Result",
+		"- Status: failed",
+		"- Exit code: 1",
+		"- Blocking issues:",
+		"  - Tests were not detected.",
+		"  - Deployment target detected but no health endpoint was found.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestMarkdownDoesNotRenderAuditResultWithoutAuditMode(t *testing.T) {
+	out := Markdown(baseAnalysis())
+	if strings.Contains(out, "## Audit Result") {
+		t.Fatalf("Markdown rendered audit result without audit mode:\n%s", out)
+	}
+}
+
 func baseAnalysis() *models.Analysis {
 	return &models.Analysis{
 		RepoPath:    "/tmp/demo",

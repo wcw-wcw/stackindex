@@ -32,6 +32,8 @@ func Markdown(a *models.Analysis) string {
 	fmt.Fprintf(&b, "## Project Summary\n\n")
 	fmt.Fprintf(&b, "- Repository: `%s`\n- Path: `%s`\n- Files scanned: %d\n- Findings: %s\n\n", a.RepoName, a.RepoPath, len(a.Files), findingSummary(a.Findings))
 
+	writeAuditResult(&b, a)
+
 	writeAIProjectSummary(&b, a)
 
 	fmt.Fprintf(&b, "## Top Recommended Fixes\n\n")
@@ -137,6 +139,36 @@ func Markdown(a *models.Analysis) string {
 		fmt.Fprintln(&b, "- Keep reports current by running `stackmap analyze . --no-tui` before deployment reviews.")
 	}
 	return b.String()
+}
+
+func writeAuditResult(b *strings.Builder, a *models.Analysis) {
+	if a.Audit == nil {
+		return
+	}
+	status := "failed"
+	if a.Audit.Passed {
+		status = "passed"
+	}
+	fmt.Fprintf(b, "## Audit Result\n\n")
+	fmt.Fprintf(b, "- Status: %s\n", status)
+	fmt.Fprintf(b, "- Exit code: %d\n", a.Audit.ExitCode)
+	if len(a.Audit.Reasons) == 0 {
+		fmt.Fprintln(b, "- Blocking issues: none")
+	} else {
+		fmt.Fprintln(b, "- Blocking issues:")
+		fmt.Fprintln(b)
+		for _, reason := range a.Audit.Reasons {
+			fmt.Fprintf(b, "  - %s\n", reason)
+		}
+	}
+	if len(a.Audit.Warnings) > 0 {
+		fmt.Fprintln(b, "- Warnings:")
+		fmt.Fprintln(b)
+		for _, warning := range a.Audit.Warnings {
+			fmt.Fprintf(b, "  - %s\n", warning)
+		}
+	}
+	fmt.Fprintln(b)
 }
 
 func writeAIProjectSummary(b *strings.Builder, a *models.Analysis) {

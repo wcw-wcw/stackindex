@@ -80,6 +80,17 @@ type AISummary struct {
 	Warning              string    `json:"warning,omitempty"`
 }
 
+type AuditResult struct {
+	Passed            bool     `json:"passed"`
+	ExitCode          int      `json:"exitCode"`
+	Reasons           []string `json:"reasons,omitempty"`
+	Warnings          []string `json:"warnings,omitempty"`
+	Mode              string   `json:"mode"`
+	AllowMedium       bool     `json:"allowMedium"`
+	AllowMissingTests bool     `json:"allowMissingTests"`
+	FailOnLow         bool     `json:"failOnLow"`
+}
+
 type Analysis struct {
 	RepoPath    string             `json:"repoPath"`
 	RepoName    string             `json:"repoName"`
@@ -93,4 +104,5 @@ type Analysis struct {
 	Deployment  DeploymentAnalysis `json:"deployment"`
 	Findings    []Finding          `json:"findings"`
 	AI          *AISummary         `json:"ai,omitempty"`
+	Audit       *AuditResult       `json:"audit,omitempty"`
 }

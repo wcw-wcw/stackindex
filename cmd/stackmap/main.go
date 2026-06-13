@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -20,7 +21,7 @@ const usage = `StackMap - local-first codebase analyzer
 Usage:
   stackmap
   stackmap analyze [path] [--json] [--no-tui] [--ai] [--model llama3.2:3b] [--ai-debug]
-  stackmap audit [path] [--json] [--ai] [--model llama3.2:3b] [--ai-debug]
+  stackmap audit [path] [--json] [--allow-medium] [--allow-missing-tests] [--fail-on-low] [--ai]
   stackmap --help
 
 Examples:
@@ -34,11 +35,16 @@ Local Ollama model behavior varies. By default StackMap tries llama3.2:3b,
 then qwen:7b, then the deterministic StackMap summary.
 
 Audit mode is deterministic for CI: it fails only on static high or medium
-findings. Optional AI report content never affects the audit exit code.
+findings and deployment-readiness blockers. Optional AI report content never
+affects the audit exit code.
 `
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		var failure auditFailure
+		if errors.As(err, &failure) {
+			os.Exit(failure.exitCode)
+		}
 		fmt.Fprintln(os.Stderr, "stackmap:", err)
 		os.Exit(1)
 	}
@@ -68,6 +74,9 @@ func analyze(args []string, auditMode bool) error {
 	jsonOut := fs.Bool("json", false, "print JSON to stdout without launching TUI")
 	noTUI := fs.Bool("no-tui", false, "run analysis and export reports without launching TUI")
 	auditFlag := fs.Bool("audit", false, "run deterministic CI audit and fail on high or medium static findings")
+	allowMedium := fs.Bool("allow-medium", false, "treat medium findings as audit warnings instead of blockers")
+	allowMissingTests := fs.Bool("allow-missing-tests", false, "treat missing tests as an audit warning instead of a blocker")
+	failOnLow := fs.Bool("fail-on-low", false, "treat low findings as audit blockers")
 	enableAI := fs.Bool("ai", false, "enable optional local Ollama analysis")
 	aiDebug := fs.Bool("ai-debug", false, "write local AI prompt/response diagnostics under .stackmap/ai-debug")
 	model := fs.String("model", "", "Ollama model to use when --ai is enabled; default tries llama3.2:3b then qwen:7b")
@@ -99,6 +108,13 @@ func analyze(args []string, auditMode bool) error {
 			fmt.Fprintf(os.Stderr, "stackmap: %s\n", analysis.AI.Warning)
 		}
 	}
+	if auditMode {
+		analysis.Audit = EvaluateAudit(analysis, AuditOptions{
+			AllowMedium:       *allowMedium,
+			AllowMissingTests: *allowMissingTests,
+			FailOnLow:         *failOnLow,
+		})
+	}
 
 	if *jsonOut {
 		if auditMode {
@@ -112,7 +128,7 @@ func analyze(args []string, auditMode bool) error {
 		}
 		fmt.Print(string(data))
 		if auditMode {
-			return auditError(analysis)
+			return auditError(analysis.Audit)
 		}
 		return nil
 	}
@@ -121,8 +137,8 @@ func analyze(args []string, auditMode bool) error {
 		return err
 	}
 	if auditMode {
-		printAuditSummary(root, analysis)
-		return auditError(analysis)
+		printAuditSummary(analysis)
+		return auditError(analysis.Audit)
 	}
 	if *noTUI {
 		printExportSummary(root)
@@ -139,47 +155,130 @@ func printExportSummary(root string) {
 	fmt.Println("Note: .stackmap is a hidden folder on macOS Finder. Press Cmd+Shift+. in Finder to show hidden files.")
 }
 
+type AuditOptions struct {
+	AllowMedium       bool
+	AllowMissingTests bool
+	FailOnLow         bool
+}
+
 type auditFailure struct {
-	high   int
-	medium int
+	exitCode int
 }
 
 func (e auditFailure) Error() string {
-	return fmt.Sprintf("audit failed: %d high and %d medium findings", e.high, e.medium)
+	return fmt.Sprintf("audit failed with exit code %d", e.exitCode)
 }
 
-func auditError(analysis *models.Analysis) error {
-	high, medium := auditBlockingCounts(analysis.Findings)
-	if high == 0 && medium == 0 {
+func auditError(result *models.AuditResult) error {
+	if result == nil || result.ExitCode == 0 {
 		return nil
 	}
-	return auditFailure{high: high, medium: medium}
+	return auditFailure{exitCode: result.ExitCode}
 }
 
-func auditBlockingCounts(findings []models.Finding) (int, int) {
-	var high, medium int
+func EvaluateAudit(analysis *models.Analysis, opts AuditOptions) *models.AuditResult {
+	result := &models.AuditResult{
+		Mode:              "deployment-readiness",
+		AllowMedium:       opts.AllowMedium,
+		AllowMissingTests: opts.AllowMissingTests,
+		FailOnLow:         opts.FailOnLow,
+	}
+
+	high, medium, low := auditSeverityCounts(analysis.Findings)
+	if high > 0 {
+		result.Reasons = append(result.Reasons, pluralizeCount(high, "high finding")+" detected.")
+	}
+	if medium > 0 {
+		message := pluralizeCount(medium, "medium finding") + " detected."
+		if opts.AllowMedium {
+			result.Warnings = append(result.Warnings, message)
+		} else {
+			result.Reasons = append(result.Reasons, message)
+		}
+	}
+	if low > 0 {
+		message := pluralizeCount(low, "low finding") + " detected."
+		if opts.FailOnLow {
+			result.Reasons = append(result.Reasons, message)
+		} else {
+			result.Warnings = append(result.Warnings, message)
+		}
+	}
+	if !auditStackDetected(analysis.Stack) {
+		result.Reasons = append(result.Reasons, "No stack was detected.")
+	}
+	if analysis.Env.UsesEnvVars && analysis.Env.ExampleFile == "" {
+		result.Reasons = append(result.Reasons, "Environment variables were detected but no `.env.example` file was found.")
+	}
+	if len(analysis.Stack.Deployment) > 0 && !analysis.Deployment.HasHealthEndpoint {
+		result.Reasons = append(result.Reasons, "Deployment target detected but no health endpoint was found.")
+	}
+	if !auditTestsDetected(analysis.Tests) {
+		message := "Tests were not detected."
+		if opts.AllowMissingTests {
+			result.Warnings = append(result.Warnings, message)
+		} else {
+			result.Reasons = append(result.Reasons, message)
+		}
+	}
+
+	result.Passed = len(result.Reasons) == 0
+	if result.Passed {
+		result.ExitCode = 0
+	} else {
+		result.ExitCode = 1
+	}
+	return result
+}
+
+func auditSeverityCounts(findings []models.Finding) (int, int, int) {
+	var high, medium, low int
 	for _, finding := range findings {
 		switch finding.Severity {
 		case models.SeverityHigh:
 			high++
 		case models.SeverityMedium:
 			medium++
+		case models.SeverityLow:
+			low++
 		}
 	}
-	return high, medium
+	return high, medium, low
 }
 
-func printAuditSummary(root string, analysis *models.Analysis) {
-	outDir := filepath.Join(root, ".stackmap")
-	high, medium := auditBlockingCounts(analysis.Findings)
-	fmt.Printf("StackMap audit exported to %s\n", outDir)
-	fmt.Printf("JSON: %s\n", filepath.Join(outDir, "analysis.json"))
-	fmt.Printf("Markdown: %s\n", filepath.Join(outDir, "reports", "repo-report.md"))
-	if high == 0 && medium == 0 {
-		fmt.Println("Audit passed: no high or medium static findings.")
+func auditStackDetected(stack models.StackInfo) bool {
+	return len(stack.Languages)+len(stack.Frameworks)+len(stack.Libraries)+len(stack.Databases)+len(stack.Testing)+len(stack.Deployment) > 0
+}
+
+func auditTestsDetected(tests models.TestAnalysis) bool {
+	return tests.HasTestFiles || tests.HasTestScript
+}
+
+func pluralizeCount(count int, label string) string {
+	if count == 1 {
+		return fmt.Sprintf("1 %s", label)
+	}
+	return fmt.Sprintf("%d %ss", count, label)
+}
+
+func printAuditSummary(analysis *models.Analysis) {
+	result := analysis.Audit
+	if result == nil {
 		return
 	}
-	fmt.Printf("Audit failed: %d high and %d medium static findings.\n", high, medium)
+	status := "failed"
+	if result.Passed {
+		status = "passed"
+	}
+	fmt.Printf("StackMap audit: %s\n", status)
+	if !result.Passed {
+		fmt.Println()
+		for _, reason := range result.Reasons {
+			fmt.Printf("* %s\n", reason)
+		}
+	}
+	fmt.Printf("Report: %s\n", filepath.Join(".stackmap", "reports", "repo-report.md"))
+	fmt.Printf("JSON: %s\n", filepath.Join(".stackmap", "analysis.json"))
 }
 
 func normalizeAnalyzeArgs(args []string) []string {
@@ -188,7 +287,7 @@ func normalizeAnalyzeArgs(args []string) []string {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {
-		case "--json", "--no-tui", "--audit", "--ai", "--ai-debug", "-json", "-no-tui", "-audit", "-ai", "-ai-debug":
+		case "--json", "--no-tui", "--audit", "--allow-medium", "--allow-missing-tests", "--fail-on-low", "--ai", "--ai-debug", "-json", "-no-tui", "-audit", "-allow-medium", "-allow-missing-tests", "-fail-on-low", "-ai", "-ai-debug":
 			flags = append(flags, arg)
 		case "--model", "-model":
 			flags = append(flags, arg)
@@ -197,7 +296,7 @@ func normalizeAnalyzeArgs(args []string) []string {
 				flags = append(flags, args[i])
 			}
 		default:
-			if strings.HasPrefix(arg, "--model=") || strings.HasPrefix(arg, "-model=") {
+			if strings.HasPrefix(arg, "--model=") || strings.HasPrefix(arg, "-model=") || isBoolFlagAssignment(arg) {
 				flags = append(flags, arg)
 			} else {
 				positionals = append(positionals, arg)
@@ -205,4 +304,13 @@ func normalizeAnalyzeArgs(args []string) []string {
 		}
 	}
 	return append(flags, positionals...)
+}
+
+func isBoolFlagAssignment(arg string) bool {
+	for _, prefix := range []string{"--json=", "--no-tui=", "--audit=", "--allow-medium=", "--allow-missing-tests=", "--fail-on-low=", "--ai=", "--ai-debug=", "-json=", "-no-tui=", "-audit=", "-allow-medium=", "-allow-missing-tests=", "-fail-on-low=", "-ai=", "-ai-debug="} {
+		if strings.HasPrefix(arg, prefix) {
+			return true
+		}
+	}
+	return false
 }

@@ -88,10 +88,14 @@ Use audit mode in CI when you want a deterministic readiness gate:
 ```sh
 go run ./cmd/stackmap audit .
 go run ./cmd/stackmap audit . --json
-go run ./cmd/stackmap audit . --ai
+go run ./cmd/stackmap audit . --allow-missing-tests
+go run ./cmd/stackmap audit . --allow-medium
+go run ./cmd/stackmap audit . --fail-on-low
 ```
 
-Audit mode exports the same `.stackmap/analysis.json` and Markdown report as `analyze --no-tui`. It exits non-zero only when the static analyzer finds high or medium findings. Optional local AI content can be included in reports with `--ai`, but AI status, model failures, attempted models, and local model availability never affect the audit exit code.
+Audit mode exports the same `.stackmap/analysis.json` and Markdown report as `analyze --no-tui`. It is deterministic, does not require AI, and exits non-zero when deployment-readiness blockers are found: high findings, medium findings, missing stack detection, missing tests, env var usage without `.env.example`, or a detected deployment target without a health endpoint. Low and info findings do not fail audit by default.
+
+Use `--allow-medium` to treat medium findings as warnings, `--allow-missing-tests` to treat missing tests as a warning, and `--fail-on-low` to make low findings block the audit. Optional local AI content can be included in reports with `--ai`, but AI status, model failures, attempted models, and local model availability never affect the audit exit code.
 
 ## Not Included Yet
 
