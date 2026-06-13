@@ -93,7 +93,9 @@ go run ./cmd/stackmap audit . --allow-medium
 go run ./cmd/stackmap audit . --fail-on-low
 ```
 
-Audit mode exports the same `.stackmap/analysis.json` and Markdown report as `analyze --no-tui`. It is deterministic, does not require AI, and exits non-zero when deployment-readiness blockers are found: high findings, medium findings, missing stack detection, missing tests, env var usage without `.env.example`, or a detected deployment target without a health endpoint. Low and info findings do not fail audit by default.
+Audit mode exports the same `.stackmap/analysis.json` and Markdown report as `analyze --no-tui`. It is deterministic, does not require AI, and exits non-zero when deployment-readiness blockers are found: high findings, medium findings, missing stack detection, missing tests, env var usage without `.env.example`, or a backend/API deployment surface without a health endpoint. Low and info findings do not fail audit by default.
+
+Health endpoints are required when StackMap detects backend/API surfaces such as extracted API routes or backend server frameworks. Static frontend apps deployed to a target such as Vercel receive a warning, not a failure, when no health endpoint is found. A stricter health policy can be added later if a project wants every deployment target to expose one.
 
 Use `--allow-medium` to treat medium findings as warnings, `--allow-missing-tests` to treat missing tests as a warning, and `--fail-on-low` to make low findings block the audit. Optional local AI content can be included in reports with `--ai`, but AI status, model failures, attempted models, and local model availability never affect the audit exit code.
 

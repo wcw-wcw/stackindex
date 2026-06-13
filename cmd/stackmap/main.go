@@ -210,8 +210,14 @@ func EvaluateAudit(analysis *models.Analysis, opts AuditOptions) *models.AuditRe
 	if analysis.Env.UsesEnvVars && analysis.Env.ExampleFile == "" {
 		result.Reasons = append(result.Reasons, "Environment variables were detected but no `.env.example` file was found.")
 	}
-	if len(analysis.Stack.Deployment) > 0 && !analysis.Deployment.HasHealthEndpoint {
-		result.Reasons = append(result.Reasons, "Deployment target detected but no health endpoint was found.")
+	result.HasBackendSurface = auditHasBackendSurface(analysis)
+	result.RequiresHealthEndpoint = auditDeploymentDetected(analysis) && result.HasBackendSurface
+	if auditDeploymentDetected(analysis) && !analysis.Deployment.HasHealthEndpoint {
+		if result.HasBackendSurface {
+			result.Reasons = append(result.Reasons, "Backend/API deployment surface detected but no health endpoint was found.")
+		} else {
+			result.Warnings = append(result.Warnings, "Deployment target detected without a health endpoint; this may be acceptable for static frontend apps.")
+		}
 	}
 	if !auditTestsDetected(analysis.Tests) {
 		message := "Tests were not detected."
@@ -252,6 +258,83 @@ func auditStackDetected(stack models.StackInfo) bool {
 
 func auditTestsDetected(tests models.TestAnalysis) bool {
 	return tests.HasTestFiles || tests.HasTestScript
+}
+
+func auditDeploymentDetected(analysis *models.Analysis) bool {
+	return len(analysis.Stack.Deployment) > 0
+}
+
+func auditHasBackendSurface(analysis *models.Analysis) bool {
+	if len(analysis.Routes) > 0 || analysis.Deployment.HasHealthEndpoint {
+		return true
+	}
+	if hasAnyLower(analysis.Stack.Frameworks, "express", "fastify", "koa", "hono") {
+		return true
+	}
+	if auditPackageHasBackendIndicator(analysis.PackageInfo) {
+		return true
+	}
+	return false
+}
+
+func auditPackageHasBackendIndicator(pkg *models.PackageInfo) bool {
+	if pkg == nil {
+		return false
+	}
+	backendDeps := []string{
+		"express",
+		"fastify",
+		"koa",
+		"hono",
+		"@hono/node-server",
+		"@fastify/http-proxy",
+		"apollo-server",
+		"graphql-yoga",
+	}
+	for dep := range allPackageDeps(pkg) {
+		if hasAnyLower([]string{dep}, backendDeps...) {
+			return true
+		}
+	}
+	for name, command := range pkg.Scripts {
+		if auditScriptLooksBackend(name, command) {
+			return true
+		}
+	}
+	return false
+}
+
+func allPackageDeps(pkg *models.PackageInfo) map[string]bool {
+	deps := map[string]bool{}
+	for name := range pkg.Dependencies {
+		deps[name] = true
+	}
+	for name := range pkg.DevDependencies {
+		deps[name] = true
+	}
+	return deps
+}
+
+func auditScriptLooksBackend(name, command string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	command = strings.ToLower(strings.TrimSpace(command))
+	if name == "server" || strings.Contains(name, ":server") {
+		return true
+	}
+	return strings.Contains(command, "server.") || strings.Contains(command, "/server") || strings.Contains(command, " api/")
+}
+
+func hasAnyLower(values []string, needles ...string) bool {
+	needleSet := map[string]bool{}
+	for _, needle := range needles {
+		needleSet[strings.ToLower(needle)] = true
+	}
+	for _, value := range values {
+		if needleSet[strings.ToLower(strings.TrimSpace(value))] {
+			return true
+		}
+	}
+	return false
 }
 
 func pluralizeCount(count int, label string) string {

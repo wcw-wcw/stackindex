@@ -298,7 +298,7 @@ func TestMarkdownAuditResultRendersFailingState(t *testing.T) {
 		Mode:     "deployment-readiness",
 		Reasons: []string{
 			"Tests were not detected.",
-			"Deployment target detected but no health endpoint was found.",
+			"Backend/API deployment surface detected but no health endpoint was found.",
 		},
 	}
 
@@ -309,7 +309,7 @@ func TestMarkdownAuditResultRendersFailingState(t *testing.T) {
 		"- Exit code: 1",
 		"- Blocking issues:",
 		"  - Tests were not detected.",
-		"  - Deployment target detected but no health endpoint was found.",
+		"  - Backend/API deployment surface detected but no health endpoint was found.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("Markdown did not contain %q:\n%s", want, out)

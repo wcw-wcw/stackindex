@@ -81,14 +81,16 @@ type AISummary struct {
 }
 
 type AuditResult struct {
-	Passed            bool     `json:"passed"`
-	ExitCode          int      `json:"exitCode"`
-	Reasons           []string `json:"reasons,omitempty"`
-	Warnings          []string `json:"warnings,omitempty"`
-	Mode              string   `json:"mode"`
-	AllowMedium       bool     `json:"allowMedium"`
-	AllowMissingTests bool     `json:"allowMissingTests"`
-	FailOnLow         bool     `json:"failOnLow"`
+	Passed                 bool     `json:"passed"`
+	ExitCode               int      `json:"exitCode"`
+	Reasons                []string `json:"reasons,omitempty"`
+	Warnings               []string `json:"warnings,omitempty"`
+	Mode                   string   `json:"mode"`
+	AllowMedium            bool     `json:"allowMedium"`
+	AllowMissingTests      bool     `json:"allowMissingTests"`
+	FailOnLow              bool     `json:"failOnLow"`
+	HasBackendSurface      bool     `json:"hasBackendSurface"`
+	RequiresHealthEndpoint bool     `json:"requiresHealthEndpoint"`
 }
 
 type Analysis struct {
