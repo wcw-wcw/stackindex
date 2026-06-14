@@ -43,6 +43,7 @@ const (
 	questionRoutes      questionType = "routes"
 	questionStructure   questionType = "structure"
 	questionGraph       questionType = "graph"
+	questionDatabase    questionType = "database"
 	questionDeployment  questionType = "deployment"
 	questionTests       questionType = "tests"
 	questionEnvironment questionType = "environment"
@@ -75,6 +76,8 @@ func AnswerDeterministically(analysis *models.Analysis, question string) *models
 		return answerStructure(analysis, question)
 	case questionGraph:
 		return answerGraph(analysis, question)
+	case questionDatabase:
+		return answerDatabase(analysis, question)
 	case questionDeployment:
 		return answerDeployment(analysis, question)
 	case questionTests:
@@ -91,11 +94,13 @@ func AnswerDeterministically(analysis *models.Analysis, question string) *models
 func classify(question string) questionType {
 	q := normalize(question)
 	switch {
-	case containsAny(q, "frontend connected to the backend", "frontend connect", "connect to the backend", "front end connected", "client connected"):
+	case containsAny(q, "frontend connected to the backend", "frontend connect", "connect to the backend", "front end connected", "client connected", "frontend connect to the backend", "frontend talk to the backend", "client talk to the api", "where is the api client", "api client"):
 		return questionConnection
 	case containsAny(q, "what is this project", "what is this repo for", "what is this project for", "summarize this project", "what does this app do"):
 		return questionPurpose
-	case containsAny(q, "what stack", "what technologies", "what frameworks", "what database", "what db", "using react", "using next", "using vite", "using postgres", "using postgresql", "using fastapi"):
+	case containsAny(q, "how does this project use neon", "how does this project use postgres", "how does this project use postgresql", "what database", "what db", "where is the database configured", "are there migrations", "how does storage work", "database configured", "storage work", "use neon", "use postgres", "use postgresql", "migrations"):
+		return questionDatabase
+	case containsAny(q, "what stack", "what technologies", "what frameworks", "using react", "using next", "using vite", "using fastapi"):
 		return questionStack
 	case containsAny(q, "where are the api routes", "what endpoints exist", "does this have a backend", "what routes does it expose", "api routes", "endpoints"):
 		return questionRoutes
@@ -242,16 +247,48 @@ func answerGraph(a *models.Analysis, question string) *models.QAResult {
 	return result(question, strings.Join(fragments, " "), confidenceForCount(len(g.Nodes)+len(g.Edges)+len(evidence)), evidence)
 }
 
+func answerDatabase(a *models.Analysis, question string) *models.QAResult {
+	evidence := databaseEvidence(a)
+	var sentences []string
+	if len(a.Stack.Databases) > 0 {
+		sentences = append(sentences, "Detected database/storage: "+strings.Join(a.Stack.Databases, ", ")+".")
+	} else {
+		sentences = append(sentences, "StackMap did not detect a named database in the stack.")
+	}
+	envNames := databaseEnvNames(a.Env)
+	if len(envNames) > 0 {
+		sentences = append(sentences, "Configuration appears to use "+strings.Join(capStrings(envNames, 4), ", ")+".")
+	}
+	if len(a.Deployment.MigrationFiles) > 0 {
+		sentences = append(sentences, fmt.Sprintf("Migrations are present, including %s.", strings.Join(capStrings(a.Deployment.MigrationFiles, 3), ", ")))
+	} else if a.Deployment.HasMigrationFiles {
+		sentences = append(sentences, "Migration files were detected.")
+	}
+	scripts := databaseScripts(a.PackageInfo)
+	if len(scripts) > 0 {
+		sentences = append(sentences, "Relevant scripts include "+strings.Join(capStrings(scripts, 4), ", ")+".")
+	}
+	contextSignals := databaseContextSignals(a)
+	if len(contextSignals) > 0 {
+		sentences = append(sentences, databaseContextAnswer(contextSignals))
+	}
+	files := databaseFiles(a)
+	if len(files) > 0 {
+		sentences = append(sentences, "Database-related files include "+strings.Join(capStrings(files, 4), ", ")+".")
+	}
+	return result(question, strings.Join(sentences, " "), confidenceForCount(len(evidence)), evidence)
+}
+
 func answerDeployment(a *models.Analysis, question string) *models.QAResult {
 	audit := localAudit(a)
 	var fragments []string
 	if audit.Passed {
-		fragments = append(fragments, "Deployment-readiness checks did not find deterministic blockers.")
+		fragments = append(fragments, "Audit-style deployment checks would pass; no deterministic blockers were found.")
 	} else {
-		fragments = append(fragments, "Review these deployment blockers: "+strings.Join(audit.Reasons, " "))
+		fragments = append(fragments, fmt.Sprintf("Audit-style deployment checks would fail; review %d blocker%s: %s", len(audit.Reasons), pluralS(len(audit.Reasons)), strings.Join(audit.Reasons, " ")))
 	}
 	if len(audit.Warnings) > 0 {
-		fragments = append(fragments, "Warnings: "+strings.Join(audit.Warnings, " "))
+		fragments = append(fragments, fmt.Sprintf("Warnings to consider: %s", strings.Join(audit.Warnings, " ")))
 	}
 	fragments = append(fragments, deploymentSignals(a.Deployment))
 	evidence := []models.QAEvidence{}
@@ -324,10 +361,37 @@ func answerEnvironment(a *models.Analysis, question string) *models.QAResult {
 
 func answerConnection(a *models.Analysis, question string) *models.QAResult {
 	var fragments []string
+	frontendDirs := matchingDirectoryPrefixes(a, "frontend", "src")
+	backendDirs := matchingDirectoryPrefixes(a, "backend", "api", "server")
+	clientFiles := frontendAPIClientFiles(a)
+	if len(frontendDirs) > 0 || len(backendDirs) > 0 {
+		var sides []string
+		if len(frontendDirs) > 0 {
+			sides = append(sides, "frontend under "+strings.Join(capStrings(frontendDirs, 2), ", "))
+		}
+		if len(backendDirs) > 0 {
+			sides = append(sides, "backend/API surface under "+strings.Join(capStrings(backendDirs, 2), ", "))
+		}
+		fragments = append(fragments, "StackMap sees "+strings.Join(sides, " and ")+".")
+	}
+	if len(clientFiles) > 0 {
+		fragments = append(fragments, "Frontend API client files include "+strings.Join(capStrings(clientFiles, 4), ", ")+".")
+	}
 	if len(a.Routes) > 0 {
 		fragments = append(fragments, fmt.Sprintf("The frontend/backend boundary is visible through %d detected API route%s.", len(a.Routes), pluralS(len(a.Routes))))
 	} else {
 		fragments = append(fragments, "StackMap did not detect explicit API routes, so it cannot prove a frontend/backend connection.")
+	}
+	backendFrameworks := backendFrameworkSignals(a.Stack.Frameworks)
+	if len(backendFrameworks) > 0 {
+		fragments = append(fragments, "Backend framework signals include "+strings.Join(backendFrameworks, ", ")+".")
+	}
+	apiEnv := apiBaseEnvNames(a.Env)
+	if len(apiEnv) > 0 {
+		fragments = append(fragments, "API base configuration appears to use "+strings.Join(capStrings(apiEnv, 3), ", ")+".")
+	}
+	if len(a.Stack.Deployment) > 0 {
+		fragments = append(fragments, "Deployment boundary signals include "+strings.Join(a.Stack.Deployment, ", ")+".")
 	}
 	if len(a.Dependencies.Entrypoints) > 0 {
 		fragments = append(fragments, "Detected entrypoints include "+strings.Join(capStrings(a.Dependencies.Entrypoints, 4), ", ")+".")
@@ -336,8 +400,14 @@ func answerConnection(a *models.Analysis, question string) *models.QAResult {
 		fragments = append(fragments, strings.Join(capStrings(a.Dependencies.ArchitectureHints, 2), " "))
 	}
 	evidence := []models.QAEvidence{}
+	for _, file := range capStrings(clientFiles, 6) {
+		addEvidence(&evidence, "file", "Frontend API client", file, file)
+	}
 	for _, route := range capRoutes(a.Routes, 6) {
 		addEvidence(&evidence, "route", strings.TrimSpace(route.Method+" "+route.Path), route.Confidence, route.SourceFile)
+	}
+	for _, name := range capStrings(apiEnv, 4) {
+		addEvidence(&evidence, "env", "API base env", name, "")
 	}
 	for _, path := range capStrings(a.Dependencies.Entrypoints, 4) {
 		addEvidence(&evidence, "graph", "Entrypoint", path, path)
@@ -349,7 +419,7 @@ func answerConnection(a *models.Analysis, question string) *models.QAResult {
 }
 
 func unsupported(question, detail string) *models.QAResult {
-	answer := "StackMap ask can answer evidence-based questions about project purpose, detected stack, API routes, important files, dependency connections, deployment readiness, tests, and environment configuration."
+	answer := "StackMap ask can answer evidence-based questions about project purpose, detected stack, database/storage, API routes, important files, dependency connections, deployment readiness, tests, and environment configuration."
 	if detail != "" {
 		answer = detail + " " + answer
 	}
@@ -534,7 +604,7 @@ func MarshalJSON(result *models.QAResult) ([]byte, error) {
 
 func FormatText(result *models.QAResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n", result.Answer)
+	fmt.Fprintf(&b, "Answer:\n%s\n", readableAnswer(result.Answer))
 	fmt.Fprintf(&b, "\nConfidence: %s\nMode: %s\n", result.Confidence, result.Mode)
 	if result.Model != "" {
 		fmt.Fprintf(&b, "Model: %s\n", result.Model)
@@ -553,6 +623,58 @@ func FormatText(result *models.QAResult) string {
 		}
 	}
 	return b.String()
+}
+
+func readableAnswer(answer string) string {
+	answer = strings.TrimSpace(answer)
+	if answer == "" || strings.Contains(answer, "\n") {
+		return answer
+	}
+	sentences := splitSentences(answer)
+	if len(sentences) <= 1 {
+		return answer
+	}
+	var lines []string
+	var current string
+	for _, sentence := range sentences {
+		if current == "" {
+			current = sentence
+			continue
+		}
+		if len(current)+1+len(sentence) > 110 {
+			lines = append(lines, current)
+			current = sentence
+		} else {
+			current += " " + sentence
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func splitSentences(answer string) []string {
+	var sentences []string
+	start := 0
+	for i := 0; i < len(answer); i++ {
+		if answer[i] != '.' && answer[i] != '!' && answer[i] != '?' {
+			continue
+		}
+		end := i + 1
+		if end < len(answer) && answer[end] != ' ' {
+			continue
+		}
+		sentence := strings.TrimSpace(answer[start:end])
+		if sentence != "" {
+			sentences = append(sentences, sentence)
+		}
+		start = end
+	}
+	if tail := strings.TrimSpace(answer[start:]); tail != "" {
+		sentences = append(sentences, tail)
+	}
+	return sentences
 }
 
 func modelCandidates(model string, fallbacks []string) []string {
@@ -692,6 +814,281 @@ func addDeploymentEvidence(evidence *[]models.QAEvidence, d models.DeploymentAna
 	for _, file := range capStrings(d.MigrationFiles, 5) {
 		addEvidence(evidence, "file", "Migration file", file, file)
 	}
+}
+
+func databaseEvidence(a *models.Analysis) []models.QAEvidence {
+	evidence := []models.QAEvidence{}
+	for _, database := range a.Stack.Databases {
+		addEvidence(&evidence, "database", "Detected database", database, "")
+	}
+	for _, name := range databaseEnvNames(a.Env) {
+		addEvidence(&evidence, "env", "Database env", name, "")
+	}
+	for _, file := range a.Deployment.MigrationFiles {
+		addEvidence(&evidence, "migration", "Migration file", file, file)
+	}
+	for _, script := range databaseScripts(a.PackageInfo) {
+		addEvidence(&evidence, "script", "Database script", script, "package.json")
+	}
+	for _, dep := range databaseDependencies(a.PackageInfo) {
+		addEvidence(&evidence, "package", "Database package", dep, "package.json")
+	}
+	for _, item := range databaseContextSignals(a) {
+		addEvidence(&evidence, "context", "Database context", item, "")
+	}
+	for _, file := range databaseFiles(a) {
+		addEvidence(&evidence, "file", "Database file", file, file)
+	}
+	return dedupeEvidence(evidence)
+}
+
+func databaseEnvNames(env models.EnvAnalysis) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] || !looksDatabaseRelated(name) {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	for _, item := range env.UsedVars {
+		add(item.Name)
+	}
+	for _, name := range env.ExampleVars {
+		add(name)
+	}
+	for _, name := range env.MissingFromExample {
+		add(name)
+	}
+	for _, name := range env.MissingRequiredFromExample {
+		add(name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func apiBaseEnvNames(env models.EnvAnalysis) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		upper := strings.ToUpper(name)
+		if name == "" || seen[name] {
+			return
+		}
+		if strings.Contains(upper, "API_BASE") || strings.Contains(upper, "BASE_URL") || strings.Contains(upper, "PUBLIC_API") || strings.Contains(upper, "VITE_API") || strings.Contains(upper, "NEXT_PUBLIC_API") {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	for _, item := range env.UsedVars {
+		add(item.Name)
+	}
+	for _, name := range env.ExampleVars {
+		add(name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func databaseScripts(pkg *models.PackageInfo) []string {
+	if pkg == nil {
+		return nil
+	}
+	var out []string
+	for name, command := range pkg.Scripts {
+		combined := strings.ToLower(name + " " + command)
+		if containsAny(combined, "db:", "database", "migrate", "migration", "seed", "import", "embedding", "embeddings", "prisma", "drizzle", "pgvector", "neon", "postgres") {
+			out = append(out, name+": "+command)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func databaseDependencies(pkg *models.PackageInfo) []string {
+	if pkg == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	addDeps := func(deps map[string]string) {
+		for name, version := range deps {
+			if !looksDatabaseRelated(name) {
+				continue
+			}
+			value := name
+			if version != "" {
+				value += "@" + version
+			}
+			if !seen[value] {
+				seen[value] = true
+				out = append(out, value)
+			}
+		}
+	}
+	addDeps(pkg.Dependencies)
+	addDeps(pkg.DevDependencies)
+	sort.Strings(out)
+	return out
+}
+
+func databaseFiles(a *models.Analysis) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(path, role string) {
+		if path == "" || seen[path] {
+			return
+		}
+		text := strings.ToLower(path + " " + role)
+		if !containsAny(text, "database", "/db", "db/", "db.", "neon", "postgres", "pgvector", "prisma", "drizzle", "migration", "storage") {
+			return
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	for _, file := range a.Structure.KeyFiles {
+		add(file.Path, file.Role)
+	}
+	for _, file := range a.Dependencies.TopConnectedFiles {
+		add(file.Path, file.Role+" "+file.WhyItMatters)
+	}
+	for _, node := range a.Dependencies.Nodes {
+		add(node.Path, node.Role)
+	}
+	for _, file := range a.Files {
+		add(file.Path, "")
+	}
+	sort.Strings(out)
+	return out
+}
+
+func databaseContextSignals(a *models.Analysis) []string {
+	candidates := []string{a.Context.ReadmeSummary, a.Context.PackageDescription}
+	candidates = append(candidates, a.Context.Evidence...)
+	candidates = append(candidates, a.Context.DocSignals...)
+	candidates = append(candidates, a.Context.EnvSignals...)
+	var out []string
+	for _, item := range candidates {
+		item = strings.TrimSpace(item)
+		if item != "" && looksDatabaseRelated(item) {
+			out = append(out, item)
+		}
+		if len(out) == 5 {
+			break
+		}
+	}
+	return out
+}
+
+func databaseContextAnswer(signals []string) string {
+	terms := []string{}
+	joined := strings.ToLower(strings.Join(signals, " "))
+	for _, term := range []string{"Neon Postgres", "Postgres", "pgvector", "migrations", "DATABASE_URL"} {
+		if strings.Contains(joined, strings.ToLower(term)) {
+			terms = append(terms, term)
+		}
+	}
+	if len(terms) > 0 {
+		return "Project context also mentions " + strings.Join(terms, ", ") + "."
+	}
+	return "Project context includes database/storage signals."
+}
+
+func looksDatabaseRelated(value string) bool {
+	return containsAny(value, "database", "database_url", "postgres", "postgresql", "neon", "pgvector", "vector", "sqlite", "prisma", "drizzle", "migration", "migrations", "db_", "_db", "pg")
+}
+
+func frontendAPIClientFiles(a *models.Analysis) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(path, role string) {
+		path = filepath.ToSlash(strings.TrimSpace(path))
+		if path == "" || seen[path] {
+			return
+		}
+		lower := strings.ToLower(path + " " + role)
+		if isFrontendAPIClientPath(lower) {
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	for _, file := range a.Structure.KeyFiles {
+		add(file.Path, file.Role)
+	}
+	for _, file := range a.Dependencies.TopConnectedFiles {
+		add(file.Path, file.Role+" "+file.WhyItMatters)
+	}
+	for _, node := range a.Dependencies.Nodes {
+		add(node.Path, node.Role)
+	}
+	for _, file := range a.Files {
+		add(file.Path, "")
+	}
+	sort.Strings(out)
+	return out
+}
+
+func backendFrameworkSignals(frameworks []string) []string {
+	var out []string
+	for _, framework := range frameworks {
+		if containsAny(framework, "fastapi", "express", "fastify", "koa", "hono", "node.js") {
+			out = append(out, framework)
+		}
+	}
+	return out
+}
+
+func isFrontendAPIClientPath(lower string) bool {
+	return strings.Contains(lower, "frontend/src/api/") ||
+		strings.Contains(lower, "src/api/") ||
+		strings.Contains(lower, "src/lib/api.") ||
+		strings.Contains(lower, "src/lib/api/") ||
+		strings.Contains(lower, "src/data/api.") ||
+		strings.Contains(lower, "src/data/api/") ||
+		strings.Contains(lower, "api-client") ||
+		strings.Contains(lower, "apiclient") ||
+		strings.Contains(lower, "client api")
+}
+
+func matchingDirectoryPrefixes(a *models.Analysis, prefixes ...string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, dir := range a.Structure.Directories {
+		path := strings.Trim(filepath.ToSlash(dir.Path), "/")
+		lower := strings.ToLower(path)
+		for _, prefix := range prefixes {
+			prefix = strings.Trim(strings.ToLower(prefix), "/")
+			if lower == prefix || strings.HasPrefix(lower, prefix+"/") {
+				root := strings.Split(path, "/")[0] + "/"
+				if prefix == "src" {
+					root = path
+				}
+				if !seen[root] {
+					seen[root] = true
+					out = append(out, root)
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func dedupeEvidence(items []models.QAEvidence) []models.QAEvidence {
+	seen := map[string]bool{}
+	var out []models.QAEvidence
+	for _, item := range items {
+		key := item.Kind + "\x00" + item.Label + "\x00" + item.Value + "\x00" + item.Path
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func addStackEvidence(evidence *[]models.QAEvidence, label string, values []string) {
