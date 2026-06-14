@@ -10,6 +10,7 @@ Local-first matters because StackMap is meant to run directly beside your code:
 - It does not call cloud AI APIs.
 - It does not run arbitrary project commands.
 - Optional AI summaries use your local Ollama server only.
+- Repo Q&A answers from deterministic analysis first; optional AI can only polish bounded evidence.
 - Audit pass/fail is always based on deterministic static checks, not model output.
 
 ## Quickstart
@@ -19,6 +20,7 @@ go run ./cmd/stackmap --help
 go run ./cmd/stackmap analyze .
 go run ./cmd/stackmap analyze . --no-tui
 go run ./cmd/stackmap audit .
+go run ./cmd/stackmap ask . "What is this project for?"
 ```
 
 After building:
@@ -39,6 +41,7 @@ go build -o stackmap ./cmd/stackmap
 | Markdown/JSON exports | Writes `.stackmap/reports/repo-report.md` and `.stackmap/analysis.json`. |
 | TUI overview | Shows a Bubble Tea/Lip Gloss terminal overview for interactive review. |
 | Deterministic audit gate | Provides CI-friendly pass/fail behavior using static findings and readiness rules. |
+| Evidence-based repo Q&A | Answers local questions from StackMap's analysis data, with evidence and optional JSON output. |
 | Optional local AI notes | Adds report-only Ollama summaries with deterministic fallback text. |
 
 ## Example Commands
@@ -53,6 +56,11 @@ stackmap analyze . --ai-debug
 stackmap audit .
 stackmap audit . --allow-missing-tests
 stackmap audit . --fail-on-low
+stackmap ask . "What is this project for?"
+stackmap ask . "Where are the API routes?"
+stackmap ask . "What should I review before deployment?"
+stackmap ask . "Where are the API routes?" --json
+stackmap ask . "What is this project for?" --ai
 ```
 
 When running from source, prefix the same commands with `go run ./cmd/stackmap`, for example:
@@ -88,9 +96,9 @@ By default, audit fails for:
 - Missing stack detection
 - Missing tests
 - Env var usage without `.env.example`
-- Backend/API deployment surfaces without a health endpoint
+- Backend/API deployment surfaces without a health endpoint, including Next.js API routes, Vercel-style `api/` functions, and detected server entrypoints
 
-Low and info findings do not fail audit by default. Static/frontend-style deployments without health endpoints receive a warning instead of a failure.
+Low and info findings do not fail audit by default. Static/frontend-style deployments without detected backend/API surface receive a health-endpoint warning instead of a failure.
 
 Audit flags:
 
@@ -99,6 +107,68 @@ Audit flags:
 - `--fail-on-low`: make low findings block the audit.
 - `--json`: print JSON and still use the audit exit code.
 - `--ai`: include optional local AI report notes without affecting pass/fail.
+
+## Ask Mode
+
+`stackmap ask [path] "question"` answers repository questions from StackMap's deterministic analysis data. It does not chat over raw source files, use embeddings, or call cloud AI. Each answer includes a confidence level and evidence such as detected routes, files, stack terms, audit signals, package scripts, or graph facts.
+
+Examples:
+
+```sh
+stackmap ask . "What is this project for?"
+stackmap ask . "Where are the API routes?"
+stackmap ask . "What should I review before deployment?"
+stackmap ask . "Does this project have tests?"
+stackmap ask . "How is the frontend connected to the backend?"
+```
+
+Ask mode supports questions about:
+
+- Project purpose and README/package context
+- Detected stack, frameworks, databases, testing, and deployment targets
+- API routes and backend surface
+- Important folders/files and where to start
+- Lightweight dependency graph connections and highly connected files
+- Deployment readiness, risks, health checks, and env examples
+- Test files, test scripts, and detected test frameworks
+- Environment variable usage and `.env.example` coverage
+
+Use `--json` to print the Q&A result as JSON:
+
+```sh
+stackmap ask . "Where are the API routes?" --json
+```
+
+The JSON shape is:
+
+```json
+{
+  "question": "Where are the API routes?",
+  "answer": "This project exposes detected API routes...",
+  "confidence": "high",
+  "evidence": [
+    {
+      "kind": "route",
+      "label": "GET /api/health",
+      "value": "high",
+      "path": "src/app/api/health/route.ts"
+    }
+  ],
+  "mode": "deterministic",
+  "model": "",
+  "attemptedModels": [],
+  "warnings": []
+}
+```
+
+With `--ai`, StackMap sends only the deterministic Q&A answer and evidence factsheet to local Ollama for polishing:
+
+```sh
+ollama serve
+stackmap ask . "What is this project for?" --ai
+```
+
+If Ollama is unavailable or returns unsupported text, ask mode falls back to the deterministic answer. `--model` selects a local model, and `--ai-debug` writes bounded diagnostics under `.stackmap/ai-debug/ask/`.
 
 ## Report Outputs
 
@@ -181,6 +251,8 @@ Model recommendations:
 
 By default, StackMap tries `llama3.2:3b`, then `qwen:7b`, then falls back to the deterministic StackMap summary. AI status, model failures, attempted models, and local model availability never affect audit pass/fail.
 
+The same local-only AI rule applies to `stackmap ask --ai`: the model receives a compact Q&A factsheet, not the full repository.
+
 ## AI Debug Mode
 
 Use `--ai-debug` to inspect the local prompt, factsheet, and model responses:
@@ -220,9 +292,11 @@ Use `--allow-missing-tests` or `--allow-medium` only when that tradeoff is inten
 
 - StackMap uses static heuristics, not full program execution.
 - It does not run project build, test, install, or migration commands.
+- Ask mode is evidence-based over StackMap's current analysis; unsupported questions get suggested examples instead of speculative answers.
+- Ask mode does not implement embeddings, semantic vector search, or full raw source chat.
 - Local AI quality depends on installed Ollama models.
 - AI notes are report-only and never determine audit pass/fail.
-- Frontend-only apps may not need health endpoints; StackMap warns instead of failing when no backend/API surface is detected.
+- Frontend-only apps may not need health endpoints; StackMap warns instead of failing when no backend/API surface is detected. Hybrid frontend plus serverless/API projects are treated as having backend/API surface.
 - Some framework, route, deployment, and monorepo detection will need future expansion.
 - Findings are intentionally conservative, so StackMap may miss project-specific readiness issues.
 

@@ -6,37 +6,86 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/will/stackmap/internal/models"
 )
 
 type packageJSON struct {
 	Name            string            `json:"name"`
+	Description     string            `json:"description"`
 	Scripts         map[string]string `json:"scripts"`
 	Dependencies    map[string]string `json:"dependencies"`
 	DevDependencies map[string]string `json:"devDependencies"`
 }
 
 func AnalyzePackage(root string, files []models.FileInfo) (*models.PackageInfo, []models.Finding, error) {
-	if !hasFile(files, "package.json") {
+	info := &models.PackageInfo{PackageManagerHint: packageManagerHint(files)}
+	hasPackage := false
+	for _, file := range files {
+		if filepath.Base(file.Path) != "package.json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path)))
+		if err != nil {
+			return nil, nil, err
+		}
+		var pkg packageJSON
+		if err := json.Unmarshal(data, &pkg); err != nil {
+			return nil, nil, err
+		}
+		mergePackageJSON(info, pkg, file.Path)
+		hasPackage = true
+	}
+	if hasFile(files, "go.mod") {
+		data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+		if err != nil {
+			return nil, nil, err
+		}
+		info.ModuleName = parseGoModuleName(string(data))
+		if info.Name == "" && info.ModuleName != "" {
+			info.Name = filepath.Base(info.ModuleName)
+		}
+		hasPackage = true
+	}
+	if !hasPackage {
 		return nil, nil, nil
 	}
-	data, err := os.ReadFile(filepath.Join(root, "package.json"))
-	if err != nil {
-		return nil, nil, err
-	}
-	var pkg packageJSON
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return nil, nil, err
-	}
-	info := &models.PackageInfo{
-		Name:               pkg.Name,
-		PackageManagerHint: packageManagerHint(files),
-		Scripts:            pkg.Scripts,
-		Dependencies:       pkg.Dependencies,
-		DevDependencies:    pkg.DevDependencies,
-	}
 	return info, PackageFindings(info), nil
+}
+
+func mergePackageJSON(info *models.PackageInfo, pkg packageJSON, path string) {
+	if info.Scripts == nil {
+		info.Scripts = map[string]string{}
+	}
+	if info.Dependencies == nil {
+		info.Dependencies = map[string]string{}
+	}
+	if info.DevDependencies == nil {
+		info.DevDependencies = map[string]string{}
+	}
+	if path == "package.json" || info.Name == "" {
+		if pkg.Name != "" {
+			info.Name = pkg.Name
+		}
+		if pkg.Description != "" {
+			info.Description = pkg.Description
+		}
+	}
+	prefix := strings.TrimSuffix(filepath.ToSlash(filepath.Dir(path)), ".")
+	for name, command := range pkg.Scripts {
+		key := name
+		if path != "package.json" && prefix != "" {
+			key = prefix + ":" + name
+		}
+		info.Scripts[key] = command
+	}
+	for dep, version := range pkg.Dependencies {
+		info.Dependencies[dep] = version
+	}
+	for dep, version := range pkg.DevDependencies {
+		info.DevDependencies[dep] = version
+	}
 }
 
 func PackageFindings(info *models.PackageInfo) []models.Finding {
@@ -69,10 +118,20 @@ func ParsePackageJSON(data []byte) (*models.PackageInfo, error) {
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return nil, err
 	}
-	if pkg.Name == "" && len(pkg.Scripts) == 0 && len(pkg.Dependencies) == 0 && len(pkg.DevDependencies) == 0 {
+	if pkg.Name == "" && pkg.Description == "" && len(pkg.Scripts) == 0 && len(pkg.Dependencies) == 0 && len(pkg.DevDependencies) == 0 {
 		return nil, errors.New("package.json does not contain recognized fields")
 	}
-	return &models.PackageInfo{Name: pkg.Name, Scripts: pkg.Scripts, Dependencies: pkg.Dependencies, DevDependencies: pkg.DevDependencies}, nil
+	return &models.PackageInfo{Name: pkg.Name, Description: pkg.Description, Scripts: pkg.Scripts, Dependencies: pkg.Dependencies, DevDependencies: pkg.DevDependencies}, nil
+}
+
+func parseGoModuleName(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		}
+	}
+	return ""
 }
 
 func allDeps(info *models.PackageInfo) map[string]string {

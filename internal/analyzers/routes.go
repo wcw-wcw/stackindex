@@ -34,6 +34,12 @@ func AnalyzeRoutes(root string, files []models.FileInfo) []models.RouteInfo {
 		if strings.Contains(lower, "pages/api/") {
 			routes = append(routes, models.RouteInfo{Method: "ANY", Path: pagesAPIRoute(file.Path), SourceFile: file.Path, Confidence: "medium"})
 		}
+		if isVercelAPIFunction(file.Path) {
+			routes = append(routes, vercelAPIFunctionRoute(file.Path))
+		}
+		if isLocalAPIScript(file.Path) {
+			routes = append(routes, localAPIScriptRoute(file.Path))
+		}
 		routes = append(routes, ExtractExpressRoutes(string(data), file.Path)...)
 	}
 	sort.Slice(routes, func(i, j int) bool {
@@ -101,6 +107,59 @@ func pagesAPIRoute(path string) string {
 	route = strings.ReplaceAll(route, "[", ":")
 	route = strings.ReplaceAll(route, "]", "")
 	return route
+}
+
+func isVercelAPIFunction(path string) bool {
+	lower := strings.ToLower(filepath.ToSlash(path))
+	if !strings.HasPrefix(lower, "api/") {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(lower)) {
+	case ".js", ".ts", ".mjs", ".cjs":
+		return true
+	default:
+		return false
+	}
+}
+
+func vercelAPIFunctionRoute(path string) models.RouteInfo {
+	noExt := strings.TrimSuffix(filepath.ToSlash(path), filepath.Ext(path))
+	routePath := "/" + strings.TrimSuffix(noExt, "/index")
+	return models.RouteInfo{
+		Method:     "ANY",
+		Path:       routePath,
+		SourceFile: path,
+		Confidence: "medium",
+		Note:       "Vercel-style serverless function file.",
+	}
+}
+
+func isLocalAPIScript(path string) bool {
+	lower := strings.ToLower(filepath.ToSlash(path))
+	if !strings.HasPrefix(lower, "scripts/") || strings.Contains(lower, ".test.") {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(lower))
+	if !strings.Contains(base, "api") {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(base)) {
+	case ".js", ".ts", ".mjs", ".cjs":
+		return true
+	default:
+		return false
+	}
+}
+
+func localAPIScriptRoute(path string) models.RouteInfo {
+	noExt := strings.TrimSuffix(filepath.ToSlash(path), filepath.Ext(path))
+	return models.RouteInfo{
+		Method:     "LOCAL",
+		Path:       "/" + noExt,
+		SourceFile: path,
+		Confidence: "low",
+		Note:       "Local API/server script detected by filename.",
+	}
 }
 
 func dedupeRoutes(in []models.RouteInfo) []models.RouteInfo {

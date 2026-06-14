@@ -13,6 +13,8 @@ type StackInfo struct {
 
 type PackageInfo struct {
 	Name               string            `json:"name,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	ModuleName         string            `json:"moduleName,omitempty"`
 	PackageManagerHint string            `json:"packageManagerHint,omitempty"`
 	Scripts            map[string]string `json:"scripts,omitempty"`
 	Dependencies       map[string]string `json:"dependencies,omitempty"`
@@ -93,18 +95,111 @@ type AuditResult struct {
 	RequiresHealthEndpoint bool     `json:"requiresHealthEndpoint"`
 }
 
+type QAResult struct {
+	Question        string       `json:"question"`
+	Answer          string       `json:"answer"`
+	Confidence      string       `json:"confidence"`
+	Evidence        []QAEvidence `json:"evidence,omitempty"`
+	Mode            string       `json:"mode"`
+	Model           string       `json:"model,omitempty"`
+	AttemptedModels []string     `json:"attemptedModels,omitempty"`
+	Warnings        []string     `json:"warnings,omitempty"`
+}
+
+type QAEvidence struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Path  string `json:"path,omitempty"`
+}
+
+type ProjectContext struct {
+	Purpose            string   `json:"purpose"`
+	Confidence         string   `json:"confidence"`
+	Evidence           []string `json:"evidence,omitempty"`
+	ReadmeTitle        string   `json:"readmeTitle,omitempty"`
+	ReadmeSummary      string   `json:"readmeSummary,omitempty"`
+	PackageName        string   `json:"packageName,omitempty"`
+	PackageDescription string   `json:"packageDescription,omitempty"`
+	DocSignals         []string `json:"docSignals,omitempty"`
+	ScriptSignals      []string `json:"scriptSignals,omitempty"`
+	EnvSignals         []string `json:"envSignals,omitempty"`
+}
+
+type StructureMap struct {
+	Directories []DirectoryRole `json:"directories,omitempty"`
+	KeyFiles    []FileRole      `json:"keyFiles,omitempty"`
+}
+
+type DependencyGraph struct {
+	Nodes             []DependencyNode       `json:"nodes,omitempty"`
+	Edges             []DependencyEdge       `json:"edges,omitempty"`
+	Entrypoints       []string               `json:"entrypoints,omitempty"`
+	UnresolvedImports []UnresolvedImport     `json:"unresolvedImports,omitempty"`
+	TopConnectedFiles []ConnectedFileSummary `json:"topConnectedFiles,omitempty"`
+	ArchitectureHints []string               `json:"architectureHints,omitempty"`
+}
+
+type DependencyNode struct {
+	Path            string `json:"path"`
+	Role            string `json:"role,omitempty"`
+	Language        string `json:"language,omitempty"`
+	ImportsCount    int    `json:"importsCount"`
+	ImportedByCount int    `json:"importedByCount"`
+	Importance      string `json:"importance"`
+}
+
+type DependencyEdge struct {
+	From       string `json:"from"`
+	To         string `json:"to,omitempty"`
+	ImportPath string `json:"importPath"`
+	Kind       string `json:"kind"`
+	Confidence string `json:"confidence"`
+}
+
+type UnresolvedImport struct {
+	From       string `json:"from"`
+	ImportPath string `json:"importPath"`
+	Reason     string `json:"reason"`
+}
+
+type ConnectedFileSummary struct {
+	Path            string `json:"path"`
+	Role            string `json:"role,omitempty"`
+	ImportsCount    int    `json:"importsCount"`
+	ImportedByCount int    `json:"importedByCount"`
+	WhyItMatters    string `json:"whyItMatters"`
+}
+
+type DirectoryRole struct {
+	Path      string   `json:"path"`
+	Role      string   `json:"role"`
+	Evidence  []string `json:"evidence,omitempty"`
+	FileCount int      `json:"fileCount"`
+}
+
+type FileRole struct {
+	Path       string   `json:"path"`
+	Role       string   `json:"role"`
+	Evidence   []string `json:"evidence,omitempty"`
+	Importance string   `json:"importance"`
+}
+
 type Analysis struct {
-	RepoPath    string             `json:"repoPath"`
-	RepoName    string             `json:"repoName"`
-	GeneratedAt time.Time          `json:"generatedAt"`
-	Files       []FileInfo         `json:"files"`
-	Stack       StackInfo          `json:"stack"`
-	PackageInfo *PackageInfo       `json:"packageInfo,omitempty"`
-	Env         EnvAnalysis        `json:"env"`
-	Routes      []RouteInfo        `json:"routes"`
-	Tests       TestAnalysis       `json:"tests"`
-	Deployment  DeploymentAnalysis `json:"deployment"`
-	Findings    []Finding          `json:"findings"`
-	AI          *AISummary         `json:"ai,omitempty"`
-	Audit       *AuditResult       `json:"audit,omitempty"`
+	RepoPath     string             `json:"repoPath"`
+	RepoName     string             `json:"repoName"`
+	GeneratedAt  time.Time          `json:"generatedAt"`
+	Files        []FileInfo         `json:"files"`
+	Stack        StackInfo          `json:"stack"`
+	PackageInfo  *PackageInfo       `json:"packageInfo,omitempty"`
+	Context      ProjectContext     `json:"projectContext"`
+	Structure    StructureMap       `json:"structureMap"`
+	Dependencies DependencyGraph    `json:"dependencyGraph"`
+	Env          EnvAnalysis        `json:"env"`
+	Routes       []RouteInfo        `json:"routes"`
+	Tests        TestAnalysis       `json:"tests"`
+	Deployment   DeploymentAnalysis `json:"deployment"`
+	Findings     []Finding          `json:"findings"`
+	AI           *AISummary         `json:"ai,omitempty"`
+	Audit        *AuditResult       `json:"audit,omitempty"`
 }

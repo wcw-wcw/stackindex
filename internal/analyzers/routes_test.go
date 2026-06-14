@@ -1,6 +1,10 @@
 package analyzers
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/will/stackmap/internal/models"
+)
 
 func TestExtractExpressRoutes(t *testing.T) {
 	got := ExtractExpressRoutes(`app.get("/api/health", handler); router.post("/:id/reply", h)`, "src/server.ts")
@@ -27,5 +31,35 @@ export { remove as DELETE }
 		if got[i] != want[i] {
 			t.Fatalf("method %d: expected %s, got %s", i, want[i], got[i])
 		}
+	}
+}
+
+func TestAnalyzeRoutesDetectsVercelAPIFunction(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"api/anime/lookup.js": "export default function handler(req, res) { res.json({ ok: true }) }",
+	})
+	files := []models.FileInfo{{Path: "api/anime/lookup.js", Kind: models.FileKindSource}}
+
+	got := AnalyzeRoutes(root, files)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 route, got %d: %#v", len(got), got)
+	}
+	if got[0].Method != "ANY" || got[0].Path != "/api/anime/lookup" || got[0].Confidence != "medium" {
+		t.Fatalf("unexpected Vercel API route: %#v", got[0])
+	}
+}
+
+func TestAnalyzeRoutesDetectsLocalAPIScriptWithLowConfidence(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"scripts/catalog-api.mjs": "import http from 'node:http'",
+	})
+	files := []models.FileInfo{{Path: "scripts/catalog-api.mjs", Kind: models.FileKindSource}}
+
+	got := AnalyzeRoutes(root, files)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 route, got %d: %#v", len(got), got)
+	}
+	if got[0].Method != "LOCAL" || got[0].Path != "/scripts/catalog-api" || got[0].Confidence != "low" {
+		t.Fatalf("unexpected local API script route: %#v", got[0])
 	}
 }

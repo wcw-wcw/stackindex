@@ -55,6 +55,12 @@ func Markdown(a *models.Analysis) string {
 	writeList(&b, "Deployment", a.Stack.Deployment)
 	fmt.Fprintln(&b)
 
+	writeProjectContext(&b, a)
+	writeProjectStructure(&b, a)
+	writeKeyFiles(&b, a)
+	writeFileConnections(&b, a)
+	writeArchitectureHints(&b, a)
+
 	fmt.Fprintf(&b, "## File Overview\n\n")
 	for _, line := range fileOverview(a.Files) {
 		fmt.Fprintf(&b, "- %s\n", line)
@@ -139,6 +145,123 @@ func Markdown(a *models.Analysis) string {
 		fmt.Fprintln(&b, "- Keep reports current by running `stackmap analyze . --no-tui` before deployment reviews.")
 	}
 	return b.String()
+}
+
+func writeProjectContext(b *strings.Builder, a *models.Analysis) {
+	if strings.TrimSpace(a.Context.Purpose) == "" {
+		return
+	}
+	fmt.Fprintf(b, "## Project Context\n\n")
+	fmt.Fprintf(b, "- Likely purpose: %s\n", a.Context.Purpose)
+	fmt.Fprintf(b, "- Confidence: %s\n", a.Context.Confidence)
+	if a.Context.ReadmeTitle != "" {
+		fmt.Fprintf(b, "- README title: %s\n", a.Context.ReadmeTitle)
+	}
+	if a.Context.ReadmeSummary != "" {
+		fmt.Fprintf(b, "- README summary: %s\n", a.Context.ReadmeSummary)
+	}
+	if len(a.Context.Evidence) > 0 {
+		fmt.Fprintln(b, "- Evidence:")
+		fmt.Fprintln(b)
+		for _, item := range capReportStrings(a.Context.Evidence, 5) {
+			fmt.Fprintf(b, "  - %s\n", item)
+		}
+	}
+	fmt.Fprintln(b)
+}
+
+func writeProjectStructure(b *strings.Builder, a *models.Analysis) {
+	if len(a.Structure.Directories) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "## Project Structure\n\n")
+	for _, dir := range capReportDirectoryRoles(a.Structure.Directories, 8) {
+		fmt.Fprintf(b, "- `%s` — %s.", dir.Path, dir.Role)
+		if dir.FileCount > 0 {
+			fmt.Fprintf(b, " %d files scanned.", dir.FileCount)
+		}
+		fmt.Fprintln(b)
+	}
+	fmt.Fprintln(b)
+}
+
+func writeKeyFiles(b *strings.Builder, a *models.Analysis) {
+	if len(a.Structure.KeyFiles) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "## Key Files\n\n")
+	for _, file := range capReportFileRoles(a.Structure.KeyFiles, 10) {
+		role := reportFileRole(file)
+		if role == "" {
+			continue
+		}
+		fmt.Fprintf(b, "- `%s` — %s.\n", file.Path, role)
+	}
+	fmt.Fprintln(b)
+}
+
+func reportFileRole(file models.FileRole) string {
+	role := strings.TrimSpace(file.Role)
+	if role != "" {
+		return role
+	}
+	lower := strings.ToLower(file.Path)
+	switch {
+	case strings.Contains(lower, "deploy"):
+		return "Deployment documentation"
+	case strings.HasPrefix(lower, "docs/") || strings.HasSuffix(lower, ".md"):
+		return "Documentation file"
+	case strings.HasPrefix(lower, "api/"):
+		return "Serverless/API function"
+	case strings.HasPrefix(lower, "scripts/"):
+		return "Operational script"
+	default:
+		return ""
+	}
+}
+
+func writeFileConnections(b *strings.Builder, a *models.Analysis) {
+	if len(a.Dependencies.TopConnectedFiles) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "## File Connections\n\n")
+	for _, file := range capReportConnectedFiles(a.Dependencies.TopConnectedFiles, 10) {
+		role := strings.TrimSpace(file.Role)
+		if role == "" {
+			role = "connected source file"
+		}
+		detail := file.WhyItMatters
+		if detail == "" {
+			detail = connectionCounts(file)
+		} else {
+			detail = strings.TrimSuffix(detail, ".") + "; " + connectionCounts(file)
+		}
+		fmt.Fprintf(b, "- `%s` — %s; %s.\n", file.Path, sentenceLower(role), detail)
+	}
+	fmt.Fprintln(b)
+}
+
+func writeArchitectureHints(b *strings.Builder, a *models.Analysis) {
+	if len(a.Dependencies.ArchitectureHints) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "## Architecture Hints\n\n")
+	for _, hint := range capReportStrings(a.Dependencies.ArchitectureHints, 5) {
+		fmt.Fprintf(b, "- %s\n", hint)
+	}
+	fmt.Fprintln(b)
+}
+
+func connectionCounts(file models.ConnectedFileSummary) string {
+	return fmt.Sprintf("imports %d internal file(s), imported by %d internal file(s)", file.ImportsCount, file.ImportedByCount)
+}
+
+func sentenceLower(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	return strings.ToLower(value[:1]) + value[1:]
 }
 
 func writeAuditResult(b *strings.Builder, a *models.Analysis) {
@@ -509,4 +632,32 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func capReportStrings(in []string, limit int) []string {
+	if len(in) <= limit {
+		return in
+	}
+	return in[:limit]
+}
+
+func capReportDirectoryRoles(in []models.DirectoryRole, limit int) []models.DirectoryRole {
+	if len(in) <= limit {
+		return in
+	}
+	return in[:limit]
+}
+
+func capReportFileRoles(in []models.FileRole, limit int) []models.FileRole {
+	if len(in) <= limit {
+		return in
+	}
+	return in[:limit]
+}
+
+func capReportConnectedFiles(in []models.ConnectedFileSummary, limit int) []models.ConnectedFileSummary {
+	if len(in) <= limit {
+		return in
+	}
+	return in[:limit]
 }

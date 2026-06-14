@@ -12,6 +12,7 @@ import (
 	"github.com/will/stackmap/internal/ai"
 	"github.com/will/stackmap/internal/analyzers"
 	"github.com/will/stackmap/internal/models"
+	"github.com/will/stackmap/internal/qa"
 	"github.com/will/stackmap/internal/report"
 	"github.com/will/stackmap/internal/tui"
 )
@@ -22,6 +23,7 @@ Usage:
   stackmap
   stackmap analyze [path] [--json] [--no-tui] [--ai] [--model llama3.2:3b] [--ai-debug]
   stackmap audit [path] [--json] [--allow-medium] [--allow-missing-tests] [--fail-on-low] [--ai]
+  stackmap ask [path] "question" [--json] [--ai] [--model llama3.2:3b] [--ai-debug]
   stackmap --help
 
 Examples:
@@ -30,6 +32,8 @@ Examples:
   stackmap analyze . --json
   stackmap analyze . --ai --model llama3.2:3b
   stackmap audit .
+  stackmap ask . "What is this project for?"
+  stackmap ask . "Where are the API routes?"
 
 Local Ollama model behavior varies. By default StackMap tries llama3.2:3b,
 then qwen:7b, then the deterministic StackMap summary.
@@ -37,6 +41,9 @@ then qwen:7b, then the deterministic StackMap summary.
 Audit mode is deterministic for CI: it fails only on static high or medium
 findings and deployment-readiness blockers. Optional AI report content never
 affects the audit exit code.
+
+Ask mode answers from StackMap's deterministic local analysis first. With
+--ai, local Ollama may polish the bounded evidence, but AI is never required.
 `
 
 func main() {
@@ -63,9 +70,67 @@ func run(args []string) error {
 		return analyze(args[1:], false)
 	case "audit":
 		return analyze(args[1:], true)
+	case "ask":
+		return ask(args[1:])
 	default:
 		return analyze(args, false)
 	}
+}
+
+func ask(args []string) error {
+	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print Q&A result JSON to stdout")
+	enableAI := fs.Bool("ai", false, "enable optional local Ollama synthesis from bounded Q&A evidence")
+	aiDebug := fs.Bool("ai-debug", false, "write local AI Q&A diagnostics under .stackmap/ai-debug/ask")
+	model := fs.String("model", "", "Ollama model to use when --ai is enabled; default tries llama3.2:3b then qwen:7b")
+	_ = fs.Bool("no-tui", false, "accepted for compatibility; ask mode never launches the TUI")
+	if err := fs.Parse(normalizeAskArgs(args)); err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		return errors.New(`ask requires a question, for example: stackmap ask . "What is this project for?"`)
+	}
+
+	target := "."
+	question := ""
+	switch fs.NArg() {
+	case 1:
+		question = fs.Arg(0)
+	default:
+		target = fs.Arg(0)
+		question = strings.Join(fs.Args()[1:], " ")
+	}
+	question = strings.TrimSpace(question)
+	if question == "" {
+		return errors.New("ask question cannot be empty")
+	}
+	root, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	analysis, err := analyzers.Analyze(root)
+	if err != nil {
+		return err
+	}
+	opts := qa.Options{UseAI: *enableAI, Model: *model}
+	if *aiDebug {
+		opts.DebugDir = filepath.Join(root, ".stackmap", "ai-debug", "ask")
+	}
+	result := qa.Ask(context.Background(), analysis, question, opts)
+	if err := qa.WriteLatest(root, result); err != nil {
+		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+err.Error())
+	}
+	if *jsonOut {
+		data, err := qa.MarshalJSON(result)
+		if err != nil {
+			return err
+		}
+		fmt.Print(string(data))
+		return nil
+	}
+	fmt.Print(qa.FormatText(result))
+	return nil
 }
 
 func analyze(args []string, auditMode bool) error {
@@ -393,8 +458,42 @@ func normalizeAnalyzeArgs(args []string) []string {
 	return append(flags, positionals...)
 }
 
+func normalizeAskArgs(args []string) []string {
+	var flags []string
+	var positionals []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--json", "--ai", "--ai-debug", "--no-tui", "-json", "-ai", "-ai-debug", "-no-tui":
+			flags = append(flags, arg)
+		case "--model", "-model":
+			flags = append(flags, arg)
+			if i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+		default:
+			if strings.HasPrefix(arg, "--model=") || strings.HasPrefix(arg, "-model=") || isAskBoolFlagAssignment(arg) {
+				flags = append(flags, arg)
+			} else {
+				positionals = append(positionals, arg)
+			}
+		}
+	}
+	return append(flags, positionals...)
+}
+
 func isBoolFlagAssignment(arg string) bool {
 	for _, prefix := range []string{"--json=", "--no-tui=", "--audit=", "--allow-medium=", "--allow-missing-tests=", "--fail-on-low=", "--ai=", "--ai-debug=", "-json=", "-no-tui=", "-audit=", "-allow-medium=", "-allow-missing-tests=", "-fail-on-low=", "-ai=", "-ai-debug="} {
+		if strings.HasPrefix(arg, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAskBoolFlagAssignment(arg string) bool {
+	for _, prefix := range []string{"--json=", "--ai=", "--ai-debug=", "--no-tui=", "-json=", "-ai=", "-ai-debug=", "-no-tui="} {
 		if strings.HasPrefix(arg, prefix) {
 			return true
 		}

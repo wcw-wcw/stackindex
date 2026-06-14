@@ -25,6 +25,8 @@ const (
 	routeLimit     = 40
 	findingLimit   = 20
 	scriptLimit    = 12
+	contextLimit   = 5
+	structureLimit = 8
 	fieldLimit     = 700
 	itemLimit      = 220
 )
@@ -32,6 +34,7 @@ const (
 const missingSectionFallback = "No AI summary was generated for this section."
 
 var trailingCommaRE = regexp.MustCompile(`,\s*([}\]])`)
+var envVarNameRE = regexp.MustCompile(`\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b`)
 
 const (
 	relevancePassed        = "passed"
@@ -73,6 +76,9 @@ type AIFactsheet struct {
 	FileCounts          map[string]int      `json:"fileCounts"`
 	FindingCounts       map[string]int      `json:"findingCounts"`
 	DetectedStack       aiDetectedStack     `json:"detectedStack"`
+	ProjectContext      aiProjectContext    `json:"projectContext"`
+	StructureSummary    aiStructureSummary  `json:"structureSummary"`
+	DependencySummary   aiDependencySummary `json:"dependencySummary"`
 	HealthSummary       aiHealthSummary     `json:"healthSummary"`
 	PackageScripts      map[string]string   `json:"packageScripts,omitempty"`
 	APIRoutes           []compactRoute      `json:"apiRoutes,omitempty"`
@@ -81,6 +87,46 @@ type AIFactsheet struct {
 	DeploymentReadiness aiDeploymentSummary `json:"deploymentReadiness"`
 	TopFindings         []compactFinding    `json:"topFindings,omitempty"`
 	FindingsTotal       int                 `json:"findingsTotal"`
+}
+
+type aiProjectContext struct {
+	Purpose            string   `json:"purpose,omitempty"`
+	Confidence         string   `json:"confidence,omitempty"`
+	Evidence           []string `json:"evidence,omitempty"`
+	ReadmeTitle        string   `json:"readmeTitle,omitempty"`
+	PackageName        string   `json:"packageName,omitempty"`
+	PackageDescription string   `json:"packageDescription,omitempty"`
+}
+
+type aiStructureSummary struct {
+	Directories []compactDirectoryRole `json:"directories,omitempty"`
+	KeyFiles    []compactFileRole      `json:"keyFiles,omitempty"`
+}
+
+type aiDependencySummary struct {
+	Entrypoints       []string               `json:"entrypoints,omitempty"`
+	TopConnectedFiles []compactConnectedFile `json:"topConnectedFiles,omitempty"`
+	ArchitectureHints []string               `json:"architectureHints,omitempty"`
+	UnresolvedCount   int                    `json:"unresolvedCount"`
+}
+
+type compactDirectoryRole struct {
+	Path string `json:"path"`
+	Role string `json:"role"`
+}
+
+type compactFileRole struct {
+	Path       string `json:"path"`
+	Role       string `json:"role"`
+	Importance string `json:"importance"`
+}
+
+type compactConnectedFile struct {
+	Path            string `json:"path"`
+	Role            string `json:"role,omitempty"`
+	ImportsCount    int    `json:"importsCount"`
+	ImportedByCount int    `json:"importedByCount"`
+	WhyItMatters    string `json:"whyItMatters,omitempty"`
 }
 
 type aiDetectedStack struct {
@@ -444,6 +490,8 @@ func factsheetText(f AIFactsheet) string {
 	fmt.Fprintf(&b, "Env example present: %t\n", f.HealthSummary.EnvExamplePresent)
 	fmt.Fprintf(&b, "Migration files present: %t\n", f.HealthSummary.MigrationFilesPresent)
 	fmt.Fprintf(&b, "Deployment docs present: %t\n", f.HealthSummary.DeploymentDocsPresent)
+	fmt.Fprintf(&b, "Entrypoints: %s\n", strings.Join(f.DependencySummary.Entrypoints, ", "))
+	fmt.Fprintf(&b, "Architecture hints: %s\n", strings.Join(f.DependencySummary.ArchitectureHints, "; "))
 	fmt.Fprintf(&b, "Findings total: %d\n", f.FindingsTotal)
 	return b.String()
 }
@@ -481,6 +529,16 @@ func BuildAIFactsheet(a *models.Analysis) AIFactsheet {
 			TestingFrameworks: append([]string{}, a.Stack.Testing...),
 			DeploymentTargets: append([]string{}, a.Stack.Deployment...),
 		},
+		ProjectContext: aiProjectContext{
+			Purpose:            capText(a.Context.Purpose, itemLimit),
+			Confidence:         a.Context.Confidence,
+			Evidence:           capStringFields(a.Context.Evidence, contextLimit),
+			ReadmeTitle:        capText(a.Context.ReadmeTitle, itemLimit),
+			PackageName:        capText(a.Context.PackageName, itemLimit),
+			PackageDescription: capText(a.Context.PackageDescription, itemLimit),
+		},
+		StructureSummary:  compactStructureSummary(a.Structure),
+		DependencySummary: compactDependencySummary(a.Dependencies),
 		HealthSummary: aiHealthSummary{
 			StackDetected:         stackDetected(a.Stack),
 			TestsPresent:          a.Tests.HasTestFiles || a.Tests.HasTestScript,
@@ -520,6 +578,44 @@ func BuildAIFactsheet(a *models.Analysis) AIFactsheet {
 	return input
 }
 
+func compactDependencySummary(graph models.DependencyGraph) aiDependencySummary {
+	out := aiDependencySummary{
+		Entrypoints:       capStringFields(graph.Entrypoints, structureLimit),
+		ArchitectureHints: capStringFields(graph.ArchitectureHints, contextLimit),
+		UnresolvedCount:   len(graph.UnresolvedImports),
+	}
+	for _, file := range graph.TopConnectedFiles {
+		out.TopConnectedFiles = append(out.TopConnectedFiles, compactConnectedFile{
+			Path:            capText(file.Path, itemLimit),
+			Role:            capText(file.Role, itemLimit),
+			ImportsCount:    file.ImportsCount,
+			ImportedByCount: file.ImportedByCount,
+			WhyItMatters:    capText(file.WhyItMatters, itemLimit),
+		})
+		if len(out.TopConnectedFiles) == structureLimit {
+			break
+		}
+	}
+	return out
+}
+
+func compactStructureSummary(structure models.StructureMap) aiStructureSummary {
+	var out aiStructureSummary
+	for _, dir := range structure.Directories {
+		out.Directories = append(out.Directories, compactDirectoryRole{Path: dir.Path, Role: capText(dir.Role, itemLimit)})
+		if len(out.Directories) == structureLimit {
+			break
+		}
+	}
+	for _, file := range structure.KeyFiles {
+		out.KeyFiles = append(out.KeyFiles, compactFileRole{Path: file.Path, Role: capText(file.Role, itemLimit), Importance: file.Importance})
+		if len(out.KeyFiles) == structureLimit {
+			break
+		}
+	}
+	return out
+}
+
 func BuildCompactInput(a *models.Analysis) AIFactsheet {
 	return BuildAIFactsheet(a)
 }
@@ -537,8 +633,10 @@ Do not explain Unix paths, source files, package names, or general programming c
 Do not list or define environment variables.
 Use only the provided factsheet. Do not invent architecture, services, security issues, routes, dependencies, migrations, databases, monorepo structure, or deployment behavior. Do not claim to have read source files.
 Mention the detected project type and concrete stack when available, such as languages, frameworks, databases, testing tools, and deployment targets.
+Use dependencySummary facts to explain how main pieces fit together, which entrypoints exist, and what areas deserve review.
 Mention at least one exact detected stack term from the factsheet, for example a language, framework, database, testing tool, or deployment target.
 Keep the summary practical and bounded. Avoid generic advice unless it is supported by findings in the factsheet.
+Do not mention a connection, entrypoint, database, migration, worker, route, or shared module unless it appears in the factsheet.
 
 StackMap analysis factsheet:
 ` + string(data)
@@ -557,6 +655,7 @@ You are summarizing only the StackMap analysis factsheet below, not answering qu
 Do not explain Unix paths, source files, package names, or general programming concepts.
 Do not list or define environment variables.
 Use only the factsheet below and do not invent architecture, services, security issues, routes, dependencies, migrations, databases, monorepo structure, or deployment behavior.
+Use dependencySummary facts to explain main pieces and entrypoints only when present.
 Mention at least one exact detected stack term from the factsheet.
 
 Why the previous response was rejected:
@@ -738,6 +837,20 @@ func cleanList(items []string) []string {
 	return out
 }
 
+func capStringFields(items []string, limit int) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = capText(strings.TrimSpace(item), itemLimit)
+		if item != "" {
+			out = append(out, item)
+			if limit > 0 && len(out) == limit {
+				break
+			}
+		}
+	}
+	return out
+}
+
 func capText(text string, limit int) string {
 	runes := []rune(text)
 	if limit <= 0 || len(runes) <= limit {
@@ -841,6 +954,12 @@ func unsupportedStructuredClaimReason(text string, analysis *models.Analysis) st
 	if strings.Contains(lower, "monorepo") {
 		return "Model output described a monorepo, but StackMap does not detect repository topology."
 	}
+	if envVarNameRE.MatchString(text) {
+		return "Model output listed environment variable names, but StackMap AI notes only summarize environment readiness counts."
+	}
+	if mentionsFactsheetMeta(lower) {
+		return "Model output summarized StackMap factsheet field names instead of the project."
+	}
 	if mentionsDatabase(lower) && (analysis == nil || len(analysis.Stack.Databases) == 0) {
 		return "Model output mentioned database/storage details, but StackMap did not detect a database or storage layer."
 	}
@@ -885,6 +1004,15 @@ func unsupportedStructuredClaimReason(text string, analysis *models.Analysis) st
 
 func mentionsDatabase(lower string) bool {
 	for _, term := range []string{"database", "postgres", "postgresql", "neon", "sqlite", "prisma", "drizzle"} {
+		if strings.Contains(lower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func mentionsFactsheetMeta(lower string) bool {
+	for _, term := range []string{"provided information", "provided data", "factsheet", "stackdetected", "healthsummary", "topfindings", "findingstotal", "dependencysummary", "architecturesummary"} {
 		if strings.Contains(lower, term) {
 			return true
 		}

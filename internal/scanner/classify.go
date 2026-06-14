@@ -16,7 +16,7 @@ func Classify(path string) (string, models.FileKind) {
 	}
 
 	switch base {
-	case "package.json", "tsconfig.json", "vercel.json", "dockerfile", ".gitignore", ".env.example":
+	case "package.json", "tsconfig.json", "vercel.json", "dockerfile", ".gitignore", ".env.example", "requirements.txt", "pyproject.toml":
 		return configLanguage(base, ext), models.FileKindConfig
 	case "readme.md":
 		return "Markdown", models.FileKindDoc
@@ -44,6 +44,8 @@ func languageForExt(ext string) string {
 	switch strings.ToLower(ext) {
 	case ".go":
 		return "Go"
+	case ".py":
+		return "Python"
 	case ".js", ".mjs", ".cjs":
 		return "JavaScript"
 	case ".jsx":

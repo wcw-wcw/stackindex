@@ -324,6 +324,101 @@ func TestMarkdownDoesNotRenderAuditResultWithoutAuditMode(t *testing.T) {
 	}
 }
 
+func TestMarkdownRendersProjectContextStructureAndKeyFiles(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Context = models.ProjectContext{
+		Purpose:       "Go CLI/TUI repository analysis tool",
+		Confidence:    "high",
+		ReadmeTitle:   "StackMap",
+		ReadmeSummary: "StackMap scans repositories and writes Markdown/JSON reports.",
+		Evidence:      []string{"README/package metadata points to go cli/tui repository analysis tool."},
+	}
+	analysis.Structure = models.StructureMap{
+		Directories: []models.DirectoryRole{
+			{Path: "cmd/", Role: "CLI entrypoints", FileCount: 1},
+			{Path: "internal/", Role: "Internal application packages", FileCount: 12},
+		},
+		KeyFiles: []models.FileRole{
+			{Path: "go.mod", Role: "Go module definition", Importance: "high"},
+			{Path: "README.md", Role: "Project documentation", Importance: "high"},
+		},
+	}
+
+	out := Markdown(analysis)
+	for _, want := range []string{
+		"## Project Context",
+		"- Likely purpose: Go CLI/TUI repository analysis tool",
+		"- Confidence: high",
+		"- README title: StackMap",
+		"## Project Structure",
+		"- `cmd/` — CLI entrypoints.",
+		"## Key Files",
+		"- `go.mod` — Go module definition.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestMarkdownRendersFileConnectionsAndArchitectureHints(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Dependencies = models.DependencyGraph{
+		TopConnectedFiles: []models.ConnectedFileSummary{
+			{
+				Path:            "cmd/stackmap/main.go",
+				Role:            "Main CLI entrypoint",
+				ImportsCount:    4,
+				ImportedByCount: 0,
+				WhyItMatters:    "Entrypoint that connects to other project modules.",
+			},
+			{
+				Path:            "internal/analyzers/analyze.go",
+				Role:            "Source file",
+				ImportsCount:    2,
+				ImportedByCount: 3,
+				WhyItMatters:    "Shared module imported by multiple files.",
+			},
+		},
+		ArchitectureHints: []string{
+			"CLI entrypoints connect to internal analyzer packages.",
+			"Shared modules are imported by multiple important files.",
+		},
+	}
+
+	out := Markdown(analysis)
+	for _, want := range []string{
+		"## File Connections",
+		"`cmd/stackmap/main.go`",
+		"main CLI entrypoint",
+		"imports 4 internal file(s), imported by 0 internal file(s)",
+		"## Architecture Hints",
+		"- CLI entrypoints connect to internal analyzer packages.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestMarkdownDoesNotRenderEmptyKeyFileDescription(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Structure = models.StructureMap{
+		KeyFiles: []models.FileRole{
+			{Path: "docs/deployment-checklist.md"},
+			{Path: "unknown.bin"},
+		},
+	}
+
+	out := Markdown(analysis)
+	if strings.Contains(out, "`docs/deployment-checklist.md` — .") || strings.Contains(out, "`unknown.bin` — .") {
+		t.Fatalf("Markdown rendered an empty key file description:\n%s", out)
+	}
+	if !strings.Contains(out, "`docs/deployment-checklist.md` — Deployment documentation.") {
+		t.Fatalf("Markdown did not render useful fallback description:\n%s", out)
+	}
+}
+
 func baseAnalysis() *models.Analysis {
 	return &models.Analysis{
 		RepoPath:    "/tmp/demo",

@@ -26,7 +26,9 @@ func Analyze(root string) (*models.Analysis, error) {
 	routes := AnalyzeRoutes(absRoot, files)
 	tests, testFindings := AnalyzeTests(files, pkg)
 	deployment, deploymentFindings := AnalyzeDeployment(absRoot, files, pkg, env, routes)
-	stack := DetectStack(files, pkg)
+	stack := DetectStack(absRoot, files, pkg)
+	context, structure := AnalyzeProjectContext(absRoot, files, pkg, stack, env, routes)
+	dependencies := AnalyzeDependencyGraph(absRoot, files, pkg, structure, routes, deployment)
 
 	findings := append([]models.Finding{}, packageFindings...)
 	findings = append(findings, envFindings...)
@@ -34,16 +36,19 @@ func Analyze(root string) (*models.Analysis, error) {
 	findings = append(findings, deploymentFindings...)
 
 	return &models.Analysis{
-		RepoPath:    absRoot,
-		RepoName:    filepath.Base(absRoot),
-		GeneratedAt: time.Now(),
-		Files:       files,
-		Stack:       stack,
-		PackageInfo: pkg,
-		Env:         env,
-		Routes:      routes,
-		Tests:       tests,
-		Deployment:  deployment,
-		Findings:    findings,
+		RepoPath:     absRoot,
+		RepoName:     filepath.Base(absRoot),
+		GeneratedAt:  time.Now(),
+		Files:        files,
+		Stack:        stack,
+		PackageInfo:  pkg,
+		Context:      context,
+		Structure:    structure,
+		Dependencies: dependencies,
+		Env:          env,
+		Routes:       routes,
+		Tests:        tests,
+		Deployment:   deployment,
+		Findings:     findings,
 	}, nil
 }

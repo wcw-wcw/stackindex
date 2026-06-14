@@ -179,6 +179,21 @@ func TestStaticViteDeploymentWithoutHealthEndpointWarns(t *testing.T) {
 	}
 }
 
+func TestVercelServerlessAPIDeploymentWithoutHealthEndpointFailsAudit(t *testing.T) {
+	analysis := staticViteAnalysis()
+	analysis.Routes = []models.RouteInfo{{Method: "ANY", Path: "/api/anime/lookup", SourceFile: "api/anime/lookup.js", Confidence: "medium"}}
+	analysis.Deployment.HasHealthEndpoint = false
+
+	result := EvaluateAudit(analysis, AuditOptions{AllowMissingTests: true})
+	assertAuditFailsWith(t, result, "Backend/API deployment surface detected but no health endpoint was found.")
+	if !result.HasBackendSurface || !result.RequiresHealthEndpoint {
+		t.Fatalf("audit backend fields = hasBackendSurface:%v requiresHealthEndpoint:%v, want true/true", result.HasBackendSurface, result.RequiresHealthEndpoint)
+	}
+	if contains(result.Warnings, "Deployment target detected without a health endpoint; this may be acceptable for static frontend apps.") {
+		t.Fatalf("serverless API app should not get static-only health warning: %v", result.Warnings)
+	}
+}
+
 func TestStaticAppStillFailsForMissingTestsUnlessAllowed(t *testing.T) {
 	analysis := staticViteAnalysis()
 	analysis.Tests = models.TestAnalysis{}
@@ -313,6 +328,32 @@ func TestNormalizeAnalyzeArgsKeepsAssignedAuditFlagsBeforePositionals(t *testing
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("normalizeAnalyzeArgs[%d] = %q, want %q (%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestNormalizeAskArgsKeepsFlagsBeforePathAndQuestion(t *testing.T) {
+	got := normalizeAskArgs([]string{".", "Where are the API routes?", "--json", "--ai", "--model", "llama3.2:3b", "--no-tui"})
+	want := []string{"--json", "--ai", "--model", "llama3.2:3b", "--no-tui", ".", "Where are the API routes?"}
+	if len(got) != len(want) {
+		t.Fatalf("normalizeAskArgs length = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("normalizeAskArgs[%d] = %q, want %q (%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestNormalizeAskArgsKeepsAssignedFlagsBeforePositionals(t *testing.T) {
+	got := normalizeAskArgs([]string{".", "What is this project for?", "--json=true", "--ai=false", "--model=qwen:7b", "--ai-debug=true"})
+	want := []string{"--json=true", "--ai=false", "--model=qwen:7b", "--ai-debug=true", ".", "What is this project for?"}
+	if len(got) != len(want) {
+		t.Fatalf("normalizeAskArgs length = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("normalizeAskArgs[%d] = %q, want %q (%v)", i, got[i], want[i], got)
 		}
 	}
 }

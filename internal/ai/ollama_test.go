@@ -43,6 +43,33 @@ func TestBuildAIFactsheetIncludesStackProjectFactsAndCaps(t *testing.T) {
 				"huge": "not included",
 			},
 		},
+		Context: models.ProjectContext{
+			Purpose:            "Stock monitoring and alerting application",
+			Confidence:         "high",
+			Evidence:           []string{"README/package metadata mentions stock monitoring.", "API routes include market and watchlist endpoints."},
+			ReadmeTitle:        "Stock Watcher",
+			PackageName:        "stkapp",
+			PackageDescription: "Stock monitoring alerts",
+		},
+		Structure: models.StructureMap{
+			Directories: []models.DirectoryRole{
+				{Path: "src/app/api/", Role: "Next.js API route handlers"},
+				{Path: "scripts/", Role: "Operational scripts/tooling"},
+			},
+			KeyFiles: []models.FileRole{
+				{Path: "package.json", Role: "Node package manifest and scripts", Importance: "high"},
+				{Path: "src/app/api/health/route.ts", Role: "Health endpoint implementation", Importance: "high"},
+			},
+		},
+		Dependencies: models.DependencyGraph{
+			Entrypoints: []string{"src/app/api/health/route.ts", "scripts/worker.mjs"},
+			TopConnectedFiles: []models.ConnectedFileSummary{
+				{Path: "src/app/api/health/route.ts", Role: "Health endpoint implementation", ImportsCount: 1, ImportedByCount: 0, WhyItMatters: "API route handler connected to shared application code."},
+				{Path: "src/lib/db.ts", Role: "Source file", ImportsCount: 0, ImportedByCount: 3, WhyItMatters: "Shared module imported by multiple files."},
+			},
+			ArchitectureHints: []string{"API route files import shared library or database-related code."},
+			UnresolvedImports: []models.UnresolvedImport{{From: "src/app/api/health/route.ts", ImportPath: "./missing", Reason: "relative import did not match a file or index file"}},
+		},
 		Routes: routes,
 		Tests: models.TestAnalysis{
 			HasTestFiles:  true,
@@ -89,6 +116,18 @@ func TestBuildAIFactsheetIncludesStackProjectFactsAndCaps(t *testing.T) {
 	if input.PackageScripts["build"] != "next build" {
 		t.Fatalf("package scripts were not included")
 	}
+	if input.ProjectContext.Purpose != "Stock monitoring and alerting application" || input.ProjectContext.Confidence != "high" {
+		t.Fatalf("project context missing from factsheet: %#v", input.ProjectContext)
+	}
+	if len(input.StructureSummary.Directories) != 2 || input.StructureSummary.KeyFiles[0].Path != "package.json" {
+		t.Fatalf("structure summary missing from factsheet: %#v", input.StructureSummary)
+	}
+	if len(input.DependencySummary.Entrypoints) != 2 || input.DependencySummary.TopConnectedFiles[1].Path != "src/lib/db.ts" || input.DependencySummary.UnresolvedCount != 1 {
+		t.Fatalf("dependency summary missing from factsheet: %#v", input.DependencySummary)
+	}
+	if input.DependencySummary.ArchitectureHints[0] != "API route files import shared library or database-related code." {
+		t.Fatalf("architecture hints missing from factsheet: %#v", input.DependencySummary.ArchitectureHints)
+	}
 	if input.Environment.Classifications["required_app_config"] != 1 || input.Environment.Classifications["platform_provided"] != 1 {
 		t.Fatalf("unexpected env classifications: %#v", input.Environment.Classifications)
 	}
@@ -128,6 +167,29 @@ func TestModelCandidatesDefaultOrderAndOverrides(t *testing.T) {
 	explicit := modelCandidates("qwen:7b", []string{"llama3.2:3b", "qwen:7b"})
 	if len(explicit) != 2 || explicit[0] != "qwen:7b" || explicit[1] != "llama3.2:3b" {
 		t.Fatalf("explicit candidates = %#v, want explicit then unique fallback", explicit)
+	}
+}
+
+func TestPromptRequestsParagraphBulletsAndGroundedGraphSummary(t *testing.T) {
+	analysis := &models.Analysis{
+		RepoName: "demo",
+		Stack:    models.StackInfo{Languages: []string{"TypeScript"}, Frameworks: []string{"Next.js"}},
+		Dependencies: models.DependencyGraph{
+			Entrypoints:       []string{"src/app/api/rules/route.ts"},
+			ArchitectureHints: []string{"API route files import shared library or database-related code."},
+		},
+	}
+	prompt := promptFor(analysis)
+	for _, want := range []string{
+		"One short paragraph, then 2 to 4 Markdown bullets.",
+		"Use dependencySummary facts to explain how main pieces fit together",
+		"Do not mention a connection, entrypoint, database, migration, worker, route, or shared module unless it appears in the factsheet.",
+		`"dependencySummary"`,
+		"src/app/api/rules/route.ts",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt did not contain %q:\n%s", want, prompt)
+		}
 	}
 }
 
@@ -487,6 +549,41 @@ func TestPlainTextModelResponseRejectsUnsupportedSecurityRiskClaim(t *testing.T)
 	}
 	if !strings.Contains(summary.RelevanceReason, "security findings") {
 		t.Fatalf("RelevanceReason = %q, want security support warning", summary.RelevanceReason)
+	}
+}
+
+func TestPlainTextModelResponseRejectsEnvVarNameListing(t *testing.T) {
+	analysis := &models.Analysis{
+		Stack: models.StackInfo{Languages: []string{"TypeScript"}},
+	}
+	text := "This TypeScript project uses environment variables such as DATABASE_URL and API_TOKEN."
+	summary := &models.AISummary{Enabled: true, Model: "llama3.2:3b"}
+	applyModelResponse(summary, text, analysis)
+
+	if summary.Relevance != relevanceLowConfidence {
+		t.Fatalf("Relevance = %q, want low confidence; reason=%q", summary.Relevance, summary.RelevanceReason)
+	}
+	if !strings.Contains(summary.RelevanceReason, "environment variable names") {
+		t.Fatalf("RelevanceReason = %q, want env var listing warning", summary.RelevanceReason)
+	}
+	if summary.LocalNotes != "" {
+		t.Fatalf("LocalNotes = %q, want empty for env var name listing", summary.LocalNotes)
+	}
+}
+
+func TestPlainTextModelResponseRejectsFactsheetMetaSummary(t *testing.T) {
+	analysis := &models.Analysis{
+		Stack: models.StackInfo{Languages: []string{"TypeScript"}, Deployment: []string{"Vercel"}},
+	}
+	text := "The provided information includes StackDetected and HealthSummary fields for a TypeScript project on Vercel."
+	summary := &models.AISummary{Enabled: true, Model: "llama3.2:3b"}
+	applyModelResponse(summary, text, analysis)
+
+	if summary.Relevance != relevanceLowConfidence {
+		t.Fatalf("Relevance = %q, want low confidence; reason=%q", summary.Relevance, summary.RelevanceReason)
+	}
+	if !strings.Contains(summary.RelevanceReason, "factsheet field names") {
+		t.Fatalf("RelevanceReason = %q, want factsheet meta warning", summary.RelevanceReason)
 	}
 }
 
