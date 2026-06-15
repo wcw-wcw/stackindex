@@ -2,9 +2,7 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -36,13 +34,15 @@ var sections = []string{
 }
 
 type Model struct {
-	analysis *models.Analysis
-	root     string
-	cursor   int
-	width    int
-	height   int
-	status   string
-	err      error
+	analysis     *models.Analysis
+	root         string
+	cursor       int
+	width        int
+	height       int
+	status       string
+	err          error
+	detailScroll int
+	actionStatus string
 
 	askInput  textinput.Model
 	askTyping bool
@@ -82,15 +82,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "esc", "backspace":
 			m.cursor = 0
+			m.resetDetailScroll()
 		case "r":
 			err := report.ExportAll(m.root, m.analysis)
 			m.cursor = len(sections) - 1
+			m.resetDetailScroll()
 			if err != nil {
 				m.err = err
 				m.status = "Export failed"
+				m.actionStatus = "Reports export failed."
 			} else {
 				m.err = nil
 				m.status = "Reports exported"
+				m.actionStatus = "Reports exported."
 			}
 		case "enter":
 			// The detail panel follows the selected section, so enter is intentionally calm.
@@ -98,12 +102,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor > 0 {
 				m.cursor--
 				m.leaveAskInput()
+				m.resetDetailScroll()
 			}
 		case "down", "j":
 			if m.cursor < len(sections)-1 {
 				m.cursor++
 				m.leaveAskInput()
+				m.resetDetailScroll()
 			}
+		case "pgup", "ctrl+b", "u":
+			m.scrollDetail(-m.detailPageSize())
+		case "pgdown", "ctrl+f", "d":
+			m.scrollDetail(m.detailPageSize())
 		}
 	}
 	return m, nil
@@ -144,6 +154,12 @@ func (m Model) updateAskHelp(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "up", "k", "down", "j", "q", "r":
 		return m, nil, false
+	case "pgup", "ctrl+b", "u":
+		m.scrollDetail(-m.detailPageSize())
+		return m, nil, true
+	case "pgdown", "ctrl+f", "d":
+		m.scrollDetail(m.detailPageSize())
+		return m, nil, true
 	}
 	if isTextInputKey(msg) {
 		m.askTyping = true
@@ -159,17 +175,29 @@ func (m *Model) submitAskQuestion() {
 	question := strings.TrimSpace(m.askInput.Value())
 	if question == "" {
 		m.askStatus = "Type a question before pressing Enter."
+		m.actionStatus = "Q&A needs a question."
 		m.askErr = nil
 		return
 	}
+	m.askStatus = "Q&A submitted."
+	m.actionStatus = "Q&A running..."
 	result := qa.Ask(context.Background(), m.analysis, question, qa.Options{})
-	if err := qa.WriteLatest(m.root, result); err != nil {
-		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+err.Error())
-		m.askErr = err
+	latestErr, historyErr := qa.WriteLatestAndAppendHistory(m.root, result)
+	switch {
+	case latestErr != nil:
+		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+latestErr.Error())
+		m.askErr = latestErr
 		m.askStatus = "Answered, but could not save latest Q&A."
-	} else {
+		m.actionStatus = "Q&A done; latest save failed."
+	case historyErr != nil:
+		result.Warnings = append(result.Warnings, "could not append .stackmap/qa/history.jsonl: "+historyErr.Error())
+		m.askErr = historyErr
+		m.askStatus = "Answered and saved latest Q&A, but history append failed."
+		m.actionStatus = "Q&A done; history save failed."
+	default:
 		m.askErr = nil
-		m.askStatus = "Answered and saved to .stackmap/qa/latest-question.json."
+		m.askStatus = "Answered and saved to .stackmap/qa/latest-question.json and history.jsonl."
+		m.actionStatus = "Q&A done and saved."
 	}
 	m.askResult = result
 	m.leaveAskInput()
@@ -179,6 +207,49 @@ func (m *Model) leaveAskInput() {
 	m.askTyping = false
 	m.askInput.Blur()
 	m.askInput.SetValue("")
+}
+
+func (m *Model) resetDetailScroll() {
+	m.detailScroll = 0
+}
+
+func (m *Model) scrollDetail(delta int) {
+	if delta == 0 {
+		return
+	}
+	m.detailScroll += delta
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
+	}
+}
+
+func (m Model) detailPageSize() int {
+	return maxInt(1, panelContentHeight(m.bodyHeight())-1)
+}
+
+func (m Model) bodyHeight() int {
+	height := m.height
+	if height <= 0 {
+		height = 32
+	}
+	headerHeight := 8
+	if height < 18 {
+		headerHeight = 5
+	}
+	footerHeight := 1
+	bodyHeight := height - headerHeight - footerHeight
+	if bodyHeight < 3 {
+		headerHeight = 4
+		bodyHeight = maxInt(1, height-headerHeight-footerHeight)
+	}
+	if m.width > 0 && m.width < 64 {
+		navHeight := minInt(6, maxInt(3, bodyHeight/4))
+		if bodyHeight-navHeight < 4 {
+			navHeight = maxInt(1, bodyHeight/3)
+		}
+		return maxInt(1, bodyHeight-navHeight)
+	}
+	return maxInt(1, bodyHeight)
 }
 
 func isTextInputKey(msg tea.KeyMsg) bool {
@@ -340,6 +411,16 @@ func (m Model) footer(width int, narrow bool) string {
 	if narrow {
 		text = "j/k move  r export  q quit"
 	}
+	if m.canScrollDetail() && !m.askTyping {
+		if narrow {
+			text += "  u/d scroll"
+		} else {
+			text += "  pgup/pgdn or u/d scroll"
+		}
+	}
+	if status := m.statusFeedback(); status != "" {
+		text += "  |  " + status
+	}
 	return mutedStyle.Width(width).Render(truncate(text, width))
 }
 
@@ -348,6 +429,17 @@ func (m Model) detail(width int) string {
 }
 
 func (m Model) detailWithHeight(width, height int) string {
+	if height > 0 && sections[m.cursor] == "Ask Help" {
+		return m.askHelpDetail(width, height)
+	}
+	content := m.detailContent(width, height)
+	if height <= 0 {
+		return content
+	}
+	return scrollContent(content, width, height, m.detailScroll, true)
+}
+
+func (m Model) detailContent(width, height int) string {
 	switch sections[m.cursor] {
 	case "Audit":
 		return m.auditDetail(width)
@@ -378,6 +470,66 @@ func (m Model) detailWithHeight(width, height int) string {
 	default:
 		return m.overviewDetail(width)
 	}
+}
+
+func (m Model) canScrollDetail() bool {
+	width := m.width
+	if width <= 0 {
+		width = 100
+	}
+	bodyHeight := m.bodyHeight()
+	detailHeight := panelContentHeight(bodyHeight)
+	detailWidth := panelContentWidth(width)
+	if width >= 64 {
+		navWidth := minInt(26, maxInt(20, width/4))
+		gap := 2
+		if width-navWidth-gap >= 36 {
+			detailWidth = panelContentWidth(width - navWidth - gap)
+		}
+	}
+	if sections[m.cursor] == "Ask Help" {
+		inputHeight := tuiLineCount(m.askInputLine(detailWidth))
+		detailHeight = maxInt(1, detailHeight-inputHeight)
+	}
+	return wrappedLineCount(m.detailContent(detailWidth, 0), detailWidth) > detailHeight
+}
+
+func (m Model) statusFeedback() string {
+	if m.actionStatus != "" {
+		return m.actionStatus
+	}
+	switch sections[m.cursor] {
+	case "Audit":
+		return auditStatusText(m.analysis.Audit)
+	case "AI Notes":
+		return aiStatusText(m.analysis.AI)
+	}
+	if status := auditStatusText(m.analysis.Audit); status != "" {
+		return status
+	}
+	return aiStatusText(m.analysis.AI)
+}
+
+func auditStatusText(audit *models.AuditResult) string {
+	if audit != nil {
+		if audit.Passed {
+			return "Audit passed"
+		}
+		return "Audit failed"
+	}
+	return ""
+}
+
+func aiStatusText(ai *models.AISummary) string {
+	if ai != nil {
+		if aiGeneratedSuccessfully(ai) {
+			return "AI generated"
+		}
+		if ai.Enabled {
+			return "AI unavailable"
+		}
+	}
+	return ""
 }
 
 func (m Model) overviewDetail(width int) string {
@@ -731,6 +883,7 @@ func (m Model) askHelpDetail(width, height int) string {
 	} else {
 		fmt.Fprintln(&b, "\nNo saved Q&A result found at .stackmap/qa/latest-question.json.")
 	}
+	writeRecentQuestions(&b, m.recentQA(4), width)
 	if m.askStatus != "" {
 		fmt.Fprintf(&b, "\nStatus: %s\n", m.askStatus)
 	}
@@ -741,7 +894,7 @@ func (m Model) askHelpDetail(width, height int) string {
 	if height > 0 {
 		inputHeight := tuiLineCount(input)
 		contentHeight := maxInt(1, height-inputHeight)
-		main := fitContent(b.String(), width, contentHeight, true)
+		main := scrollContent(b.String(), width, contentHeight, m.detailScroll, true)
 		return main + "\n" + input
 	}
 	fmt.Fprintln(&b)
@@ -756,18 +909,19 @@ func (m Model) askInputLine(width int) string {
 }
 
 func (m Model) latestQA() (*models.QAResult, bool) {
-	data, err := os.ReadFile(filepath.Join(m.root, ".stackmap", "qa", "latest-question.json"))
+	result, err := qa.ReadLatest(m.root)
 	if err != nil {
 		return nil, false
 	}
-	var result models.QAResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, false
+	return result, true
+}
+
+func (m Model) recentQA(limit int) []models.QAResult {
+	results, err := qa.ReadRecentHistory(m.root, limit)
+	if err != nil {
+		return nil
 	}
-	if strings.TrimSpace(result.Question) == "" && strings.TrimSpace(result.Answer) == "" {
-		return nil, false
-	}
-	return &result, true
+	return results
 }
 
 func hasUsableTUILocalNotes(ai *models.AISummary) bool {
@@ -806,6 +960,20 @@ func writeQAResult(b *strings.Builder, label string, result *models.QAResult, wi
 			}
 			writeWrapped(b, "- "+text, width, "")
 		}
+	}
+}
+
+func writeRecentQuestions(b *strings.Builder, results []models.QAResult, width int) {
+	if len(results) == 0 {
+		return
+	}
+	fmt.Fprintln(b, "\nRecent questions:")
+	for _, result := range results {
+		question := strings.TrimSpace(result.Question)
+		if question == "" {
+			continue
+		}
+		fmt.Fprintf(b, "- %s\n", truncate(question, width-2))
 	}
 }
 
@@ -1168,14 +1336,7 @@ func normalizeBlock(block string, width, height int) string {
 func fitContent(content string, width, height int, moreHint bool) string {
 	width = maxInt(1, width)
 	height = maxInt(1, height)
-	raw := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
-	if len(raw) > 0 && raw[len(raw)-1] == "" {
-		raw = raw[:len(raw)-1]
-	}
-	var lines []string
-	for _, line := range raw {
-		lines = append(lines, wrapOrClipLine(line, width)...)
-	}
+	lines := wrappedLines(content, width)
 	if len(lines) > height {
 		if moreHint && height > 0 {
 			hidden := len(lines) - height + 1
@@ -1191,6 +1352,59 @@ func fitContent(content string, width, height int, moreHint bool) string {
 		lines[i] = fitLine(line, width)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func scrollContent(content string, width, height, offset int, hint bool) string {
+	width = maxInt(1, width)
+	height = maxInt(1, height)
+	lines := wrappedLines(content, width)
+	maxOffset := maxInt(0, len(lines)-height)
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := minInt(len(lines), offset+height)
+	if offset < len(lines) {
+		lines = append([]string(nil), lines[offset:end]...)
+	} else {
+		lines = nil
+	}
+	if hint && maxOffset > 0 && height > 0 {
+		position := fmt.Sprintf("scroll %d/%d", offset, maxOffset)
+		if offset > 0 && len(lines) > 0 {
+			lines[0] = mutedStyle.Render("... " + position)
+		}
+		if offset < maxOffset && len(lines) > 0 {
+			remaining := maxOffset - offset
+			lines[len(lines)-1] = mutedStyle.Render(fmt.Sprintf("... %d more", remaining))
+		}
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	for i, line := range lines {
+		lines[i] = fitLine(line, width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wrappedLineCount(content string, width int) int {
+	return len(wrappedLines(content, width))
+}
+
+func wrappedLines(content string, width int) []string {
+	width = maxInt(1, width)
+	raw := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	if len(raw) > 0 && raw[len(raw)-1] == "" {
+		raw = raw[:len(raw)-1]
+	}
+	var lines []string
+	for _, line := range raw {
+		lines = append(lines, wrapOrClipLine(line, width)...)
+	}
+	return lines
 }
 
 func wrapOrClipLine(line string, width int) []string {

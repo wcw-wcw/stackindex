@@ -1,6 +1,7 @@
 package qa
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -582,8 +583,7 @@ func WriteLatest(root string, result *models.QAResult) error {
 	if result == nil {
 		return errors.New("qa result is nil")
 	}
-	outDir := filepath.Join(root, ".stackmap", "qa")
-	if err := os.MkdirAll(outDir, 0755); err != nil {
+	if err := os.MkdirAll(qaDir(root), 0755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(result, "", "  ")
@@ -591,7 +591,111 @@ func WriteLatest(root string, result *models.QAResult) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(filepath.Join(outDir, "latest-question.json"), data, 0644)
+	return os.WriteFile(LatestPath(root), data, 0644)
+}
+
+func AppendHistory(root string, result *models.QAResult) error {
+	if result == nil {
+		return errors.New("qa result is nil")
+	}
+	if err := os.MkdirAll(qaDir(root), 0755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	file, err := os.OpenFile(HistoryPath(root), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(data)
+	return err
+}
+
+func WriteLatestAndAppendHistory(root string, result *models.QAResult) (latestErr, historyErr error) {
+	latestErr = WriteLatest(root, result)
+	if latestErr != nil {
+		return latestErr, nil
+	}
+	historyErr = AppendHistory(root, result)
+	return nil, historyErr
+}
+
+func ReadLatest(root string) (*models.QAResult, error) {
+	data, err := os.ReadFile(LatestPath(root))
+	if err != nil {
+		return nil, err
+	}
+	var result models.QAResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(result.Question) == "" && strings.TrimSpace(result.Answer) == "" {
+		return nil, errors.New("latest qa result is empty")
+	}
+	return &result, nil
+}
+
+func ReadRecentHistory(root string, limit int) ([]models.QAResult, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	file, err := os.Open(HistoryPath(root))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	var results []models.QAResult
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var result models.QAResult
+		if err := json.Unmarshal([]byte(line), &result); err != nil {
+			continue
+		}
+		if strings.TrimSpace(result.Question) == "" && strings.TrimSpace(result.Answer) == "" {
+			continue
+		}
+		results = append(results, result)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if len(results) <= limit {
+		reverseQAResults(results)
+		return results, nil
+	}
+	recent := append([]models.QAResult(nil), results[len(results)-limit:]...)
+	reverseQAResults(recent)
+	return recent, nil
+}
+
+func LatestPath(root string) string {
+	return filepath.Join(qaDir(root), "latest-question.json")
+}
+
+func HistoryPath(root string) string {
+	return filepath.Join(qaDir(root), "history.jsonl")
+}
+
+func qaDir(root string) string {
+	return filepath.Join(root, ".stackmap", "qa")
+}
+
+func reverseQAResults(results []models.QAResult) {
+	for i, j := 0, len(results)-1; i < j; i, j = i+1, j-1 {
+		results[i], results[j] = results[j], results[i]
+	}
 }
 
 func MarshalJSON(result *models.QAResult) ([]byte, error) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -175,6 +177,73 @@ func TestTerminalFormattingUsesAnswerBlock(t *testing.T) {
 	}
 	if !strings.Contains(text, "\n\nConfidence: ") {
 		t.Fatalf("formatted text should separate answer from metadata:\n%s", text)
+	}
+}
+
+func TestWriteLatestAndAppendHistory(t *testing.T) {
+	root := t.TempDir()
+	result := AnswerDeterministically(fixtureAnalysis(), "What is this project for?")
+
+	latestErr, historyErr := WriteLatestAndAppendHistory(root, result)
+	if latestErr != nil || historyErr != nil {
+		t.Fatalf("WriteLatestAndAppendHistory latestErr=%v historyErr=%v", latestErr, historyErr)
+	}
+
+	latestData, err := os.ReadFile(filepath.Join(root, ".stackmap", "qa", "latest-question.json"))
+	if err != nil {
+		t.Fatalf("read latest: %v", err)
+	}
+	var latest models.QAResult
+	if err := json.Unmarshal(latestData, &latest); err != nil {
+		t.Fatalf("unmarshal latest: %v", err)
+	}
+	if latest.Question != result.Question {
+		t.Fatalf("latest question = %q, want %q", latest.Question, result.Question)
+	}
+
+	historyData, err := os.ReadFile(filepath.Join(root, ".stackmap", "qa", "history.jsonl"))
+	if err != nil {
+		t.Fatalf("read history: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(historyData)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("history line count = %d, want 1:\n%s", len(lines), historyData)
+	}
+	var history models.QAResult
+	if err := json.Unmarshal([]byte(lines[0]), &history); err != nil {
+		t.Fatalf("unmarshal history line: %v", err)
+	}
+	if history.Answer == "" {
+		t.Fatalf("history answer empty: %+v", history)
+	}
+}
+
+func TestReadRecentHistoryIgnoresMalformedLines(t *testing.T) {
+	root := t.TempDir()
+	qaDir := filepath.Join(root, ".stackmap", "qa")
+	if err := os.MkdirAll(qaDir, 0755); err != nil {
+		t.Fatalf("mkdir qa dir: %v", err)
+	}
+	content := strings.Join([]string{
+		"",
+		`{"question":"first","answer":"one","confidence":"high","mode":"deterministic"}`,
+		`not json`,
+		`{"question":"","answer":"","confidence":"low","mode":"deterministic"}`,
+		`{"question":"second","answer":"two","confidence":"high","mode":"deterministic"}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(qaDir, "history.jsonl"), []byte(content), 0644); err != nil {
+		t.Fatalf("write history: %v", err)
+	}
+
+	results, err := ReadRecentHistory(root, 3)
+	if err != nil {
+		t.Fatalf("ReadRecentHistory error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("recent count = %d, want 2: %+v", len(results), results)
+	}
+	if results[0].Question != "second" || results[1].Question != "first" {
+		t.Fatalf("recent order = %+v, want newest first", results)
 	}
 }
 

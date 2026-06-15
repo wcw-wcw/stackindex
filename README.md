@@ -18,6 +18,7 @@ Local-first matters because StackMap is meant to run directly beside your code:
 ```sh
 go run ./cmd/stackmap --help
 go run ./cmd/stackmap analyze .
+go run ./cmd/stackmap analyze . --audit
 go run ./cmd/stackmap analyze . --no-tui
 go run ./cmd/stackmap audit .
 go run ./cmd/stackmap ask . "What is this project for?"
@@ -48,6 +49,7 @@ go build -o stackmap ./cmd/stackmap
 
 ```sh
 stackmap analyze .
+stackmap analyze . --audit
 stackmap analyze . --no-tui
 stackmap analyze . --json
 stackmap analyze . --ai
@@ -71,7 +73,7 @@ go run ./cmd/stackmap audit .
 
 ## Analyze Mode
 
-`stackmap analyze [path]` scans a repository and opens the terminal UI by default. Use `--no-tui` for a plain export-only run, or `--json` to print JSON to stdout.
+`stackmap analyze [path]` scans a repository and opens the terminal UI by default. Use `--audit` to populate the TUI Audit section while keeping the interactive review flow, `--no-tui` for a plain export-only run, or `--json` to print JSON to stdout.
 
 Analyze mode checks:
 
@@ -108,9 +110,13 @@ Audit flags:
 - `--json`: print JSON and still use the audit exit code.
 - `--ai`: include optional local AI report notes without affecting pass/fail.
 
+Audit is local/static. It does not call AI or cloud services for pass/fail decisions.
+
 ## Ask Mode
 
 `stackmap ask [path] "question"` answers repository questions from StackMap's deterministic analysis data. It does not chat over raw source files, use embeddings, or call cloud AI. Each answer includes a confidence level and evidence such as detected routes, files, stack terms, audit signals, package scripts, or graph facts.
+
+The TUI also includes an Ask Help panel with a text input. Type a question there and press Enter to run the same deterministic local Q&A without leaving the terminal UI.
 
 Examples:
 
@@ -170,6 +176,16 @@ stackmap ask . "What is this project for?" --ai
 
 If Ollama is unavailable or returns unsupported text, ask mode falls back to the deterministic answer. `--model` selects a local model, and `--ai-debug` writes bounded diagnostics under `.stackmap/ai-debug/ask/`.
 
+Each CLI or TUI Q&A submission writes:
+
+```text
+.stackmap/qa/
+  latest-question.json
+  history.jsonl
+```
+
+`latest-question.json` is the compatibility file for the most recent answer. `history.jsonl` appends one local JSON line per answer, and the Ask Help panel shows the latest Q&A plus recent questions when history exists. Missing or malformed history lines are ignored.
+
 ## Report Outputs
 
 Reports are written under the analyzed repository:
@@ -177,6 +193,9 @@ Reports are written under the analyzed repository:
 ```text
 .stackmap/
   analysis.json
+  qa/
+    latest-question.json
+    history.jsonl
   reports/
     repo-report.md
 ```
@@ -242,6 +261,8 @@ go run ./cmd/stackmap analyze . --ai
 ```
 
 When enabled, StackMap sends only a compact factsheet of the deterministic analysis to the local Ollama server. It does not send the entire repository or `.env` files. If Ollama is unavailable or a model returns unusable text, StackMap records a friendly warning and continues with static analysis and a deterministic fallback summary.
+
+Ollama AI notes are optional, report-only, and local-only. Model selection is intentionally modest today; richer local model selection is a future/v2 idea, not required for the core audit or deterministic Q&A workflow.
 
 Model recommendations:
 

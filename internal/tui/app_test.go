@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,6 +200,171 @@ func TestAskHelpSubmitWritesLatestQuestion(t *testing.T) {
 	if strings.TrimSpace(result.Answer) == "" {
 		t.Fatalf("latest answer was empty: %s", string(data))
 	}
+}
+
+func TestAskHelpSubmitAppendsHistory(t *testing.T) {
+	root := t.TempDir()
+	model := testModel(t, fixtureAnalysis(), root)
+	model.cursor = sectionIndex(t, "Ask Help")
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("What is this project for?")})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	data, err := os.ReadFile(filepath.Join(root, ".stackmap", "qa", "history.jsonl"))
+	if err != nil {
+		t.Fatalf("read history qa: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("history line count = %d, want 1:\n%s", len(lines), data)
+	}
+	var result models.QAResult
+	if err := json.Unmarshal([]byte(lines[0]), &result); err != nil {
+		t.Fatalf("unmarshal history qa: %v", err)
+	}
+	if result.Question != "What is this project for?" {
+		t.Fatalf("history question = %q", result.Question)
+	}
+}
+
+func TestAskHelpSectionRendersRecentQuestions(t *testing.T) {
+	root := t.TempDir()
+	qaDir := filepath.Join(root, ".stackmap", "qa")
+	if err := os.MkdirAll(qaDir, 0755); err != nil {
+		t.Fatalf("mkdir qa dir: %v", err)
+	}
+	history := strings.Join([]string{
+		`{"question":"What is this project for?","answer":"A tool.","confidence":"high","mode":"deterministic"}`,
+		`malformed`,
+		`{"question":"Where are the API routes?","answer":"Routes.","confidence":"high","mode":"deterministic"}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(qaDir, "history.jsonl"), []byte(history), 0644); err != nil {
+		t.Fatalf("write history qa: %v", err)
+	}
+	model := testModel(t, fixtureAnalysis(), root)
+	model.cursor = sectionIndex(t, "Ask Help")
+
+	out := stripANSI(model.detail(100))
+	assertContains(t, out, "Recent questions:")
+	assertContains(t, out, "Where are the API routes?")
+	assertContains(t, out, "What is this project for?")
+}
+
+func TestLongDetailContentCanScroll(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled:    true,
+		Status:     "generated_text",
+		Model:      "llama3.2:3b",
+		LocalNotes: numberedLines("note line", 40),
+	}
+	model := testModel(t, analysis, t.TempDir())
+	model.width = 92
+	model.height = 32
+	model.cursor = sectionIndex(t, "AI Notes")
+
+	before := stripANSI(model.View())
+	assertContains(t, before, "note line 01")
+	if strings.Contains(before, "note line 20") {
+		t.Fatalf("unscrolled view unexpectedly showed later content:\n%s", before)
+	}
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyPgDown})
+	after := stripANSI(model.View())
+	assertContains(t, after, "note line 20")
+	if strings.Contains(after, "note line 01") {
+		t.Fatalf("scrolled view still showed top content:\n%s", after)
+	}
+}
+
+func TestChangingSectionsResetsDetailScroll(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled:    true,
+		Status:     "generated_text",
+		Model:      "llama3.2:3b",
+		LocalNotes: numberedLines("note line", 40),
+	}
+	model := testModel(t, analysis, t.TempDir())
+	model.width = 92
+	model.height = 32
+	model.cursor = sectionIndex(t, "AI Notes")
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyPgDown})
+	if model.detailScroll == 0 {
+		t.Fatal("detailScroll was not advanced")
+	}
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	if model.detailScroll != 0 {
+		t.Fatalf("detailScroll = %d, want reset to 0", model.detailScroll)
+	}
+}
+
+func TestAskHelpTypingStillAcceptsScrollLetters(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.cursor = sectionIndex(t, "Ask Help")
+	model.askTyping = true
+	model.askInput.Focus()
+	model.askInput.SetValue("Where")
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if got := model.askInput.Value(); got != "Whered" {
+		t.Fatalf("ask input value = %q, want Whered", got)
+	}
+	if model.detailScroll != 0 {
+		t.Fatalf("detailScroll = %d, want 0 while typing", model.detailScroll)
+	}
+}
+
+func TestScrolledFrameHeightWidthRemainStable(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled:    true,
+		Status:     "generated_text",
+		Model:      "llama3.2:3b",
+		LocalNotes: numberedLines("note line", 40),
+	}
+	model := testModel(t, analysis, t.TempDir())
+	model.width = 82
+	model.height = 18
+	model.cursor = sectionIndex(t, "AI Notes")
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyPgDown})
+
+	out := model.View()
+	if got := lineCount(out); got != model.height {
+		t.Fatalf("View line count = %d, want %d:\n%s", got, model.height, out)
+	}
+	for i, line := range strings.Split(out, "\n") {
+		if got := displayWidth(line); got != model.width {
+			t.Fatalf("line %d width = %d, want %d:\n%s", i+1, got, model.width, out)
+		}
+	}
+}
+
+func TestFooterMentionsScrollOnlyWhenUseful(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.cursor = sectionIndex(t, "Overview")
+	if strings.Contains(stripANSI(model.footer(100, false)), "scroll") {
+		t.Fatalf("footer mentioned scroll for short content: %q", model.footer(100, false))
+	}
+
+	analysis := fixtureAnalysis()
+	analysis.AI = &models.AISummary{Enabled: true, Status: "generated_text", LocalNotes: numberedLines("note line", 40)}
+	model = testModel(t, analysis, t.TempDir())
+	model.cursor = sectionIndex(t, "AI Notes")
+	assertContains(t, stripANSI(model.footer(120, false)), "pgup/pgdn or u/d scroll")
+}
+
+func TestStatusFeedbackForQASubmitAndAudit(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	assertContains(t, stripANSI(model.footer(120, false)), "Audit passed")
+	model.cursor = sectionIndex(t, "Ask Help")
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("What is this project for?")})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	assertContains(t, stripANSI(model.footer(120, false)), "Q&A done and saved")
+	assertContains(t, stripANSI(model.detail(100)), "history.jsonl")
 }
 
 func TestEmptyStatesDoNotPanic(t *testing.T) {
@@ -433,4 +599,12 @@ func lineCount(out string) int {
 
 func displayWidth(line string) int {
 	return len([]rune(stripANSI(line)))
+}
+
+func numberedLines(prefix string, count int) string {
+	var lines []string
+	for i := 1; i <= count; i++ {
+		lines = append(lines, prefix+" "+fmt.Sprintf("%02d", i))
+	}
+	return strings.Join(lines, "\n")
 }

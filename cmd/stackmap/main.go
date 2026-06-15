@@ -120,8 +120,11 @@ func ask(args []string) error {
 		opts.DebugDir = filepath.Join(root, ".stackmap", "ai-debug", "ask")
 	}
 	result := qa.Ask(context.Background(), analysis, question, opts)
-	if err := qa.WriteLatest(root, result); err != nil {
-		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+err.Error())
+	latestErr, historyErr := qa.WriteLatestAndAppendHistory(root, result)
+	if latestErr != nil {
+		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+latestErr.Error())
+	} else if historyErr != nil {
+		result.Warnings = append(result.Warnings, "could not append .stackmap/qa/history.jsonl: "+historyErr.Error())
 	}
 	if *jsonOut {
 		data, err := qa.MarshalJSON(result)
