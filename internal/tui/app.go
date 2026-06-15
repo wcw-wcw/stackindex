@@ -575,8 +575,8 @@ func (m Model) auditDetail(width int) string {
 	fmt.Fprintf(&b, "Exit code: %d\n", audit.ExitCode)
 	fmt.Fprintf(&b, "Mode: %s\n", fallback(audit.Mode, "deployment-readiness"))
 	fmt.Fprintf(&b, "Flags: allow-medium=%t  allow-missing-tests=%t  fail-on-low=%t\n\n", audit.AllowMedium, audit.AllowMissingTests, audit.FailOnLow)
-	writeTextList(&b, "Blocking issues", audit.Reasons, 6, width)
-	writeTextList(&b, "Warnings", audit.Warnings, 6, width)
+	writeTextList(&b, "Blocking issues", audit.Reasons, width)
+	writeTextList(&b, "Warnings", audit.Warnings, width)
 	if len(audit.Reasons) == 0 && len(audit.Warnings) == 0 {
 		fmt.Fprintln(&b, okStyle.Render("No audit blockers or warnings."))
 	}
@@ -607,10 +607,10 @@ func (m Model) contextDetail(width int) string {
 		fmt.Fprintln(&b, "\nREADME summary:")
 		writeWrapped(&b, ctx.ReadmeSummary, width, "  ")
 	}
-	writeTextList(&b, "Evidence", ctx.Evidence, 5, width)
-	writeTextList(&b, "Script signals", ctx.ScriptSignals, 4, width)
-	writeTextList(&b, "Env signals", ctx.EnvSignals, 4, width)
-	writeTextList(&b, "Doc signals", ctx.DocSignals, 4, width)
+	writeTextList(&b, "Evidence", ctx.Evidence, width)
+	writeTextList(&b, "Script signals", ctx.ScriptSignals, width)
+	writeTextList(&b, "Env signals", ctx.EnvSignals, width)
+	writeTextList(&b, "Doc signals", ctx.DocSignals, width)
 	return b.String()
 }
 
@@ -628,22 +628,13 @@ func (m Model) structureDetail(width int) string {
 		}
 		return directoryRank(dirs[i]) < directoryRank(dirs[j])
 	})
-	limit := minInt(len(dirs), 8)
-	for i := 0; i < limit; i++ {
-		dir := dirs[i]
+	for _, dir := range dirs {
 		fmt.Fprintf(&b, "- %s  %s\n", truncate(dir.Path, width-8), mutedStyle.Render(fmt.Sprintf("(%d files)", dir.FileCount)))
 		writeWrapped(&b, dir.Role, width, "  ")
 	}
-	if len(dirs) > limit {
-		fmt.Fprintf(&b, "%s %d more directories\n", mutedStyle.Render("..."), len(dirs)-limit)
-	}
 	if len(m.analysis.Structure.KeyFiles) > 0 {
 		fmt.Fprintln(&b, "\nKey files:")
-		for i, file := range m.analysis.Structure.KeyFiles {
-			if i >= 5 {
-				fmt.Fprintf(&b, "%s %d more key files\n", mutedStyle.Render("..."), len(m.analysis.Structure.KeyFiles)-i)
-				break
-			}
+		for _, file := range m.analysis.Structure.KeyFiles {
 			fmt.Fprintf(&b, "- %s - %s\n", truncate(file.Path, width-8), truncate(fallback(file.Role, file.Importance), width-8))
 		}
 	}
@@ -657,11 +648,7 @@ func (m Model) keyFilesDetail(width int) string {
 		fmt.Fprintln(&b, "No key files were identified.")
 		return b.String()
 	}
-	for i, file := range m.analysis.Structure.KeyFiles {
-		if i >= 12 {
-			fmt.Fprintf(&b, "%s %d more\n", mutedStyle.Render("..."), len(m.analysis.Structure.KeyFiles)-i)
-			break
-		}
+	for _, file := range m.analysis.Structure.KeyFiles {
 		role := fallback(file.Role, "Key project file")
 		if file.Importance != "" {
 			role += " (" + file.Importance + ")"
@@ -679,11 +666,7 @@ func (m Model) connectionsDetail(width int) string {
 		fmt.Fprintln(&b, "No internal file connection summary was detected.")
 		return b.String()
 	}
-	for i, file := range m.analysis.Dependencies.TopConnectedFiles {
-		if i >= 8 {
-			fmt.Fprintf(&b, "%s %d more connected files\n", mutedStyle.Render("..."), len(m.analysis.Dependencies.TopConnectedFiles)-i)
-			break
-		}
+	for _, file := range m.analysis.Dependencies.TopConnectedFiles {
 		fmt.Fprintf(&b, "- %s\n", truncate(file.Path, width-2))
 		meta := fmt.Sprintf("%s; imports %d, imported by %d", fallback(file.Role, "connected file"), file.ImportsCount, file.ImportedByCount)
 		writeWrapped(&b, meta, width, "  ")
@@ -691,7 +674,7 @@ func (m Model) connectionsDetail(width int) string {
 			writeWrapped(&b, file.WhyItMatters, width, "  ")
 		}
 	}
-	writeTextList(&b, "Architecture hints", m.analysis.Dependencies.ArchitectureHints, 5, width)
+	writeTextList(&b, "Architecture hints", m.analysis.Dependencies.ArchitectureHints, width)
 	return b.String()
 }
 
@@ -702,7 +685,6 @@ func (m Model) findingsDetail(width int) string {
 		fmt.Fprintln(&b, okStyle.Render("No findings. Nice and quiet."))
 		return b.String()
 	}
-	written := 0
 	for _, severity := range []models.Severity{models.SeverityHigh, models.SeverityMedium, models.SeverityLow, models.SeverityInfo} {
 		group := findingsBySeverity(m.analysis.Findings, severity)
 		if len(group) == 0 {
@@ -710,10 +692,6 @@ func (m Model) findingsDetail(width int) string {
 		}
 		fmt.Fprintf(&b, "\n%s %d\n", severityBadge(severity), len(group))
 		for _, f := range group {
-			if written >= 10 {
-				fmt.Fprintf(&b, "%s %d more findings\n", mutedStyle.Render("..."), len(m.analysis.Findings)-written)
-				return b.String()
-			}
 			fmt.Fprintf(&b, "- %s: %s\n", fallback(f.Category, "general"), truncate(f.Message, width-4))
 			if f.File != "" {
 				fmt.Fprintf(&b, "  file: %s\n", truncate(f.File, width-8))
@@ -721,7 +699,6 @@ func (m Model) findingsDetail(width int) string {
 			if f.Recommendation != "" {
 				writeWrapped(&b, "recommendation: "+f.Recommendation, width, "  ")
 			}
-			written++
 		}
 	}
 	return b.String()
@@ -743,20 +720,14 @@ func (m Model) routesDetail(width int) string {
 		fmt.Fprintln(&b)
 	}
 	grouped := routesByPrefix(m.analysis.Routes)
-	written := 0
 	for _, prefix := range sortedRouteGroups(grouped) {
 		fmt.Fprintf(&b, "%s\n", mutedStyle.Render(prefix))
 		for _, route := range grouped[prefix] {
-			if written >= 12 {
-				fmt.Fprintf(&b, "%s %d more routes\n", mutedStyle.Render("..."), len(m.analysis.Routes)-written)
-				return b.String()
-			}
 			fmt.Fprintf(&b, "  %-7s %s\n", methodStyle.Render(route.Method), truncate(route.Path, width-12))
 			fmt.Fprintf(&b, "          %s\n", mutedStyle.Render(truncate(route.SourceFile+" · "+route.Confidence, width-10)))
 			if route.Note != "" {
 				fmt.Fprintf(&b, "          %s\n", mutedStyle.Render(truncate(route.Note, width-10)))
 			}
-			written++
 		}
 	}
 	return b.String()
@@ -776,7 +747,7 @@ func (m Model) envDetail(width int) string {
 	writeEnvClass(&b, "Optional app config", m.analysis.Env.UsedVars, width, "optional_app_config")
 	writeEnvClass(&b, "Platform/build vars", m.analysis.Env.UsedVars, width, "platform_provided", "build_metadata")
 	writeEnvClass(&b, "Script-only vars", m.analysis.Env.UsedVars, width, "test_or_script_only")
-	writeTextList(&b, "Missing required vars", m.analysis.Env.MissingRequiredFromExample, 8, width)
+	writeTextList(&b, "Missing required vars", m.analysis.Env.MissingRequiredFromExample, width)
 	return b.String()
 }
 
@@ -802,11 +773,7 @@ func (m Model) testsDetail(width int) string {
 	}
 	if len(m.analysis.Tests.TestFiles) > 0 {
 		fmt.Fprintln(&b, "\nTest files:")
-		for i, file := range m.analysis.Tests.TestFiles {
-			if i >= 6 {
-				fmt.Fprintf(&b, "%s %d more\n", mutedStyle.Render("..."), len(m.analysis.Tests.TestFiles)-i)
-				break
-			}
+		for _, file := range m.analysis.Tests.TestFiles {
 			fmt.Fprintf(&b, "- %s\n", truncate(file, width-2))
 		}
 	}
@@ -824,8 +791,8 @@ func (m Model) deploymentDetail(width int) string {
 	writeStatusLine(&b, "Vercel config", m.analysis.Deployment.HasVercelConfig)
 	writeStatusLine(&b, "Health endpoint", m.analysis.Deployment.HasHealthEndpoint)
 	writeStatusLine(&b, "Migration files", m.analysis.Deployment.HasMigrationFiles)
-	writeTextList(&b, "Deployment files", m.analysis.Deployment.DeploymentFiles, 6, width)
-	writeTextList(&b, "Migration files", m.analysis.Deployment.MigrationFiles, 6, width)
+	writeTextList(&b, "Deployment files", m.analysis.Deployment.DeploymentFiles, width)
+	writeTextList(&b, "Migration files", m.analysis.Deployment.MigrationFiles, width)
 	return b.String()
 }
 
@@ -946,11 +913,7 @@ func writeQAResult(b *strings.Builder, label string, result *models.QAResult, wi
 	}
 	if len(result.Evidence) > 0 {
 		fmt.Fprintln(b, "Evidence:")
-		for i, evidence := range result.Evidence {
-			if i >= 3 {
-				fmt.Fprintf(b, "%s %d more evidence items\n", mutedStyle.Render("..."), len(result.Evidence)-i)
-				break
-			}
+		for _, evidence := range result.Evidence {
 			text := evidence.Label
 			if evidence.Value != "" {
 				text += ": " + evidence.Value
@@ -993,9 +956,9 @@ func writeAIStructuredSections(b *strings.Builder, ai *models.AISummary, width i
 		fmt.Fprintln(b, "\nArchitecture:")
 		writeWrapped(b, ai.ArchitectureOverview, width, "  ")
 	}
-	writeTextList(b, "Strengths", ai.KeyStrengths, 4, width)
-	writeTextList(b, "Risks", ai.PotentialRisks, 4, width)
-	writeTextList(b, "Next steps", ai.RecommendedNextSteps, 4, width)
+	writeTextList(b, "Strengths", ai.KeyStrengths, width)
+	writeTextList(b, "Risks", ai.PotentialRisks, width)
+	writeTextList(b, "Next steps", ai.RecommendedNextSteps, width)
 }
 
 func (m Model) reportsDetail(width int) string {
@@ -1066,7 +1029,10 @@ func writeEnvClass(b *strings.Builder, label string, vars []models.EnvVar, width
 		fmt.Fprintf(b, "%s: %s\n", label, mutedStyle.Render("none"))
 		return
 	}
-	fmt.Fprintf(b, "%s: %s\n", label, truncate(strings.Join(names, ", "), width-len(label)-2))
+	fmt.Fprintf(b, "%s:\n", label)
+	for _, name := range names {
+		writeWrapped(b, "- "+name, width, "")
+	}
 }
 
 func writeStatusLine(b *strings.Builder, label string, ok bool) {
@@ -1374,11 +1340,10 @@ func scrollContent(content string, width, height, offset int, hint bool) string 
 	if hint && maxOffset > 0 && height > 0 {
 		position := fmt.Sprintf("scroll %d/%d", offset, maxOffset)
 		if offset > 0 && len(lines) > 0 {
-			lines[0] = mutedStyle.Render("... " + position)
+			lines[0] = mutedStyle.Render(position)
 		}
 		if offset < maxOffset && len(lines) > 0 {
-			remaining := maxOffset - offset
-			lines[len(lines)-1] = mutedStyle.Render(fmt.Sprintf("... %d more", remaining))
+			lines[len(lines)-1] = mutedStyle.Render(position)
 		}
 	}
 	for len(lines) < height {
@@ -1509,16 +1474,12 @@ func stripANSI(text string) string {
 	return b.String()
 }
 
-func writeTextList(b *strings.Builder, label string, items []string, limit, width int) {
+func writeTextList(b *strings.Builder, label string, items []string, width int) {
 	if len(items) == 0 {
 		return
 	}
 	fmt.Fprintf(b, "\n%s:\n", label)
-	for i, item := range items {
-		if i >= limit {
-			fmt.Fprintf(b, "%s %d more\n", mutedStyle.Render("..."), len(items)-i)
-			return
-		}
+	for _, item := range items {
 		writeWrapped(b, "- "+item, width, "")
 	}
 }

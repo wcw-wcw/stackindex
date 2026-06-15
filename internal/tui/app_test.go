@@ -277,6 +277,90 @@ func TestLongDetailContentCanScroll(t *testing.T) {
 	}
 }
 
+func TestAPIRoutesRenderAllRoutesWithoutCountCap(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.Routes = manyRoutes(30)
+	model := testModel(t, analysis, t.TempDir())
+	model.cursor = sectionIndex(t, "API Routes")
+
+	out := stripANSI(model.detail(100))
+	assertContains(t, out, "/api/items/01")
+	assertContains(t, out, "/api/items/30")
+	if strings.Contains(out, "more routes") {
+		t.Fatalf("routes detail still capped route list:\n%s", out)
+	}
+}
+
+func TestTestsRenderAllTestFilesWithoutCountCap(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.Tests.TestFiles = manyTestFiles(18)
+	model := testModel(t, analysis, t.TempDir())
+	model.cursor = sectionIndex(t, "Tests")
+
+	out := stripANSI(model.detail(100))
+	assertContains(t, out, "src/features/feature_01_test.go")
+	assertContains(t, out, "src/features/feature_18_test.go")
+	if strings.Contains(out, "more") {
+		t.Fatalf("tests detail still capped test files:\n%s", out)
+	}
+}
+
+func TestKeyFilesRenderAllItemsWithoutCountCap(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.Structure.KeyFiles = manyKeyFiles(20)
+	model := testModel(t, analysis, t.TempDir())
+	model.cursor = sectionIndex(t, "Key Files")
+
+	out := stripANSI(model.detail(100))
+	assertContains(t, out, "src/key/file_01.go")
+	assertContains(t, out, "src/key/file_20.go")
+	if strings.Contains(out, "more") {
+		t.Fatalf("key files detail still capped key files:\n%s", out)
+	}
+}
+
+func TestExpandedRoutesStillScroll(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.Routes = manyRoutes(40)
+	model := testModel(t, analysis, t.TempDir())
+	model.width = 92
+	model.height = 24
+	model.cursor = sectionIndex(t, "API Routes")
+
+	before := stripANSI(model.View())
+	assertContains(t, before, "/api/items/01")
+	if strings.Contains(before, "/api/items/40") {
+		t.Fatalf("unscrolled routes view unexpectedly showed final route:\n%s", before)
+	}
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyPgDown})
+	after := stripANSI(model.View())
+	if before == after {
+		t.Fatalf("scrolling expanded routes did not change view:\n%s", after)
+	}
+	assertContains(t, after, "scroll")
+}
+
+func TestExpandedRoutesFrameHeightWidthRemainStable(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.Routes = manyRoutes(40)
+	model := testModel(t, analysis, t.TempDir())
+	model.width = 82
+	model.height = 18
+	model.cursor = sectionIndex(t, "API Routes")
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyPgDown})
+
+	out := model.View()
+	if got := lineCount(out); got != model.height {
+		t.Fatalf("View line count = %d, want %d:\n%s", got, model.height, out)
+	}
+	for i, line := range strings.Split(out, "\n") {
+		if got := displayWidth(line); got != model.width {
+			t.Fatalf("line %d width = %d, want %d:\n%s", i+1, got, model.width, out)
+		}
+	}
+}
+
 func TestChangingSectionsResetsDetailScroll(t *testing.T) {
 	analysis := fixtureAnalysis()
 	analysis.AI = &models.AISummary{
@@ -607,4 +691,37 @@ func numberedLines(prefix string, count int) string {
 		lines = append(lines, prefix+" "+fmt.Sprintf("%02d", i))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func manyRoutes(count int) []models.RouteInfo {
+	routes := make([]models.RouteInfo, 0, count)
+	for i := 1; i <= count; i++ {
+		routes = append(routes, models.RouteInfo{
+			Method:     "GET",
+			Path:       fmt.Sprintf("/api/items/%02d", i),
+			SourceFile: fmt.Sprintf("src/app/api/items/%02d/route.ts", i),
+			Confidence: "high",
+		})
+	}
+	return routes
+}
+
+func manyTestFiles(count int) []string {
+	files := make([]string, 0, count)
+	for i := 1; i <= count; i++ {
+		files = append(files, fmt.Sprintf("src/features/feature_%02d_test.go", i))
+	}
+	return files
+}
+
+func manyKeyFiles(count int) []models.FileRole {
+	files := make([]models.FileRole, 0, count)
+	for i := 1; i <= count; i++ {
+		files = append(files, models.FileRole{
+			Path:       fmt.Sprintf("src/key/file_%02d.go", i),
+			Role:       "Important generated fixture file",
+			Importance: "high",
+		})
+	}
+	return files
 }
