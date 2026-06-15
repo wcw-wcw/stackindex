@@ -34,6 +34,22 @@ func (a *App) AnalyzeProject(request backend.AnalyzeRequest) (*backend.AnalyzeRe
 	return a.session.AnalyzeProject(context.Background(), request)
 }
 
+func (a *App) OpenExistingReport(path string) (*backend.AnalyzeResponse, error) {
+	return a.session.OpenExistingReport(path)
+}
+
+func (a *App) GetRecentProjects() ([]backend.RecentProject, error) {
+	return a.session.GetRecentProjects()
+}
+
+func (a *App) RemoveRecentProject(path string) error {
+	return a.session.RemoveRecentProject(path)
+}
+
+func (a *App) ClearRecentProjects() error {
+	return a.session.ClearRecentProjects()
+}
+
 func (a *App) AskQuestion(request backend.AskRequest) (*backend.AskResponse, error) {
 	return a.session.AskQuestion(context.Background(), request)
 }

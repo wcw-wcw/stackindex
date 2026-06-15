@@ -31,6 +31,22 @@ export type AnalyzeResponse = {
   deploymentInfo: DeploymentView;
   ai: AIView;
   reports: ReportsView;
+  loadedFromDisk?: boolean;
+};
+
+export type RecentProject = {
+  repoName: string;
+  repoPath: string;
+  lastAnalyzed: string;
+  files: number;
+  routes: number;
+  tests: number;
+  findings: Record<string, number>;
+  auditStatus?: string;
+  aiStatus?: string;
+  aiModel?: string;
+  jsonReportPath: string;
+  mdReportPath: string;
 };
 
 export type ContextView = {
@@ -131,6 +147,10 @@ declare global {
           AnalyzeProject(request: AnalyzeRequest): Promise<AnalyzeResponse>;
           AskQuestion(request: AskRequest): Promise<AskResponse>;
           BrowseFolder(): Promise<string>;
+          ClearRecentProjects(): Promise<void>;
+          GetRecentProjects(): Promise<RecentProject[]>;
+          OpenExistingReport(path: string): Promise<AnalyzeResponse>;
+          RemoveRecentProject(path: string): Promise<void>;
         };
       };
     };
@@ -147,6 +167,22 @@ const backend = () => {
 
 export function analyzeProject(request: AnalyzeRequest) {
   return backend().AnalyzeProject(request);
+}
+
+export function openExistingReport(path: string) {
+  return backend().OpenExistingReport(path);
+}
+
+export function getRecentProjects() {
+  return backend().GetRecentProjects();
+}
+
+export function removeRecentProject(path: string) {
+  return backend().RemoveRecentProject(path);
+}
+
+export function clearRecentProjects() {
+  return backend().ClearRecentProjects();
 }
 
 export function askQuestion(request: AskRequest) {

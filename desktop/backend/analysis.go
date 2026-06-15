@@ -2,11 +2,15 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	stackmapapp "github.com/will/stackmap/internal/app"
 	"github.com/will/stackmap/internal/models"
@@ -46,6 +50,7 @@ type AnalyzeResponse struct {
 	DeploymentInfo DeploymentView `json:"deploymentInfo"`
 	AI             AIView         `json:"ai"`
 	Reports        ReportsView    `json:"reports"`
+	LoadedFromDisk bool           `json:"loadedFromDisk,omitempty"`
 }
 
 type ContextView struct {
@@ -139,9 +144,10 @@ type QAEvidenceView struct {
 }
 
 type Session struct {
-	mu       sync.RWMutex
-	root     string
-	analysis *models.Analysis
+	mu                 sync.RWMutex
+	root               string
+	analysis           *models.Analysis
+	recentProjectsPath string
 }
 
 func NewSession() *Session {
@@ -173,7 +179,55 @@ func (s *Session) AnalyzeProject(ctx context.Context, request AnalyzeRequest) (*
 	s.root = result.Root
 	s.analysis = result.Analysis
 	s.mu.Unlock()
-	return BuildAnalyzeResponse(result.Root, result.Analysis, request), nil
+	response := BuildAnalyzeResponse(result.Root, result.Analysis, request)
+	_ = s.upsertRecentProject(response)
+	return response, nil
+}
+
+func (s *Session) OpenExistingReport(path string) (*AnalyzeResponse, error) {
+	target := strings.TrimSpace(path)
+	if target == "" {
+		return nil, errors.New("project path is required")
+	}
+	absPath, err := filepath.Abs(target)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("project path does not exist: %s", absPath)
+		}
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("project path is not a directory: %s", absPath)
+	}
+	reportPath := filepath.Join(absPath, ".stackmap", "analysis.json")
+	data, err := os.ReadFile(reportPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("no previous StackMap report found at %s", reportPath)
+		}
+		return nil, err
+	}
+	var analysis models.Analysis
+	if err := json.Unmarshal(data, &analysis); err != nil {
+		return nil, fmt.Errorf("could not read previous StackMap report at %s: %w", reportPath, err)
+	}
+	analysis.RepoPath = absPath
+	if strings.TrimSpace(analysis.RepoName) == "" {
+		analysis.RepoName = filepath.Base(absPath)
+	}
+	s.mu.Lock()
+	s.root = absPath
+	s.analysis = &analysis
+	s.mu.Unlock()
+
+	response := BuildAnalyzeResponse(absPath, &analysis, analyzeRequestFromAnalysis(&analysis))
+	response.LoadedFromDisk = true
+	_ = s.upsertRecentProject(response)
+	return response, nil
 }
 
 func (s *Session) AskQuestion(ctx context.Context, request AskRequest) (*AskResponse, error) {
@@ -207,7 +261,7 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 	response := &AnalyzeResponse{
 		RepoName:       analysis.RepoName,
 		RepoPath:       analysis.RepoPath,
-		GeneratedAt:    analysis.GeneratedAt.Format("2006-01-02 15:04:05"),
+		GeneratedAt:    formatAnalysisTime(analysis.GeneratedAt),
 		Files:          len(analysis.Files),
 		Routes:         len(analysis.Routes),
 		Tests:          len(analysis.Tests.TestFiles),
@@ -256,6 +310,28 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 		}
 	}
 	return response
+}
+
+func analyzeRequestFromAnalysis(analysis *models.Analysis) AnalyzeRequest {
+	request := AnalyzeRequest{}
+	if analysis == nil {
+		return request
+	}
+	if analysis.Audit != nil {
+		request.RunAudit = true
+	}
+	if analysis.AI != nil {
+		request.UseAI = true
+		request.Model = analysis.AI.Model
+	}
+	return request
+}
+
+func formatAnalysisTime(value time.Time) string {
+	if value.IsZero() {
+		return "unknown"
+	}
+	return value.Format("2006-01-02 15:04:05")
 }
 
 func BuildAskResponse(result *models.QAResult) *AskResponse {

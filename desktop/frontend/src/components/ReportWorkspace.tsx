@@ -26,7 +26,7 @@ export function ReportWorkspace({ result, onRunAgain }: { result: AnalyzeRespons
           <p className="muted code-line">{result.repoPath}</p>
         </div>
         <div className="header-actions">
-          <span className="generated">Generated {result.generatedAt}</span>
+          <span className="generated">{result.loadedFromDisk ? 'Loaded report generated' : 'Generated'} {result.generatedAt}</span>
           <button className="secondary" onClick={onRunAgain}>Run again</button>
         </div>
       </header>
