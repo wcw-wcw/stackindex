@@ -86,6 +86,103 @@ func TestEmptyStatesDoNotPanic(t *testing.T) {
 	}
 }
 
+func TestViewRendersStableFrameHeight(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.width = 82
+	model.height = 18
+
+	out := model.View()
+	if got := lineCount(out); got != model.height {
+		t.Fatalf("View line count = %d, want %d:\n%s", got, model.height, out)
+	}
+	for i, line := range strings.Split(out, "\n") {
+		if got := displayWidth(line); got != model.width {
+			t.Fatalf("line %d width = %d, want %d:\n%s", i+1, got, model.width, out)
+		}
+	}
+}
+
+func TestNavRendersSectionsOnlyOnce(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	nav := stripANSI(model.nav(18, 8))
+
+	if got := strings.Count(nav, "Sections"); got != 1 {
+		t.Fatalf("Sections count = %d, want 1:\n%s", got, nav)
+	}
+	for _, section := range sections {
+		if got := strings.Count(nav, section); got > 1 {
+			t.Fatalf("section %q appeared %d times:\n%s", section, got, nav)
+		}
+	}
+}
+
+func TestNavScrollKeepsSelectedSectionVisible(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.cursor = sectionIndex(t, "Reports")
+
+	nav := stripANSI(model.nav(18, 6))
+	assertContains(t, nav, "Reports")
+	if strings.Contains(nav, "Overview") && !strings.Contains(nav, "...") {
+		t.Fatalf("short nav did not appear to scroll:\n%s", nav)
+	}
+}
+
+func TestShortViewKeepsSelectedNavVisible(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.width = 80
+	model.height = 14
+	model.cursor = sectionIndex(t, "Reports")
+
+	out := stripANSI(model.View())
+	assertContains(t, out, "> Reports")
+	if got := strings.Count(out, "Sections"); got != 1 {
+		t.Fatalf("Sections count = %d, want 1:\n%s", got, out)
+	}
+	if got := lineCount(out); got != model.height {
+		t.Fatalf("short view line count = %d, want %d:\n%s", got, model.height, out)
+	}
+}
+
+func TestViewDoesNotCarryPreviousSectionContent(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.width = 90
+	model.height = 20
+	model.cursor = sectionIndex(t, "Overview")
+	overview := stripANSI(model.View())
+	assertContains(t, overview, "Purpose:")
+
+	model.cursor = sectionIndex(t, "Reports")
+	reports := stripANSI(model.View())
+	assertContains(t, reports, "Reports")
+	if strings.Contains(reports, "Purpose:") {
+		t.Fatalf("reports view carried overview content:\n%s", reports)
+	}
+	if got := lineCount(reports); got != model.height {
+		t.Fatalf("reports line count = %d, want %d", got, model.height)
+	}
+}
+
+func TestLongLinesAreWrappedOrClippedToFrameWidth(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.Routes = []models.RouteInfo{{
+		Method:     "GET",
+		Path:       "/api/" + strings.Repeat("very-long-segment/", 12),
+		SourceFile: "src/" + strings.Repeat("deeply-nested-directory/", 12) + "route.ts",
+		Confidence: "high",
+	}}
+	model := testModel(t, analysis, t.TempDir())
+	model.width = 76
+	model.height = 16
+	model.cursor = sectionIndex(t, "API Routes")
+
+	out := model.View()
+	for i, line := range strings.Split(out, "\n") {
+		if got := displayWidth(line); got > model.width {
+			t.Fatalf("line %d width = %d, want <= %d:\n%s", i+1, got, model.width, out)
+		}
+	}
+}
+
 func fixtureAnalysis() *models.Analysis {
 	return &models.Analysis{
 		RepoPath:    "/tmp/stackmap",
@@ -192,4 +289,15 @@ func assertContains(t *testing.T, out, want string) {
 	if !strings.Contains(out, want) {
 		t.Fatalf("output did not contain %q:\n%s", want, out)
 	}
+}
+
+func lineCount(out string) int {
+	if out == "" {
+		return 0
+	}
+	return len(strings.Split(out, "\n"))
+}
+
+func displayWidth(line string) int {
+	return len([]rune(stripANSI(line)))
 }

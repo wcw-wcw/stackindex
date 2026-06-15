@@ -90,35 +90,66 @@ func (m Model) View() string {
 	if width <= 0 {
 		width = 100
 	}
+	height := m.height
+	if height <= 0 {
+		height = 32
+	}
 	if width < 64 {
-		return m.narrowView(width)
+		return m.frame(width, height, true)
 	}
-
-	header := m.header(width)
-	navWidth := 20
-	detailWidth := width - navWidth - 14
-	if detailWidth < 40 {
-		detailWidth = 40
-	}
-	left := panelStyle.Width(navWidth).Render(m.nav())
-	right := panelStyle.Width(detailWidth).Render(m.detail(detailWidth - 4))
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right)
-	footer := mutedStyle.Width(width).Render("up/down or j/k navigate  enter select  r export reports  q quit")
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	return m.frame(width, height, false)
 }
 
-func (m Model) narrowView(width int) string {
-	if width < 32 {
-		width = 32
+func (m Model) frame(width, height int, narrow bool) string {
+	width = maxInt(32, width)
+	height = maxInt(10, height)
+
+	headerHeight := 8
+	if height < 18 {
+		headerHeight = 5
 	}
-	header := m.header(width)
-	nav := panelStyle.Width(width - 2).Render(m.compactNav())
-	detail := panelStyle.Width(width - 2).Render(m.detail(width - 6))
-	footer := mutedStyle.Width(width).Render("j/k move  r export  q quit")
-	return lipgloss.JoinVertical(lipgloss.Left, header, nav, detail, footer)
+	footerHeight := 1
+	bodyHeight := height - headerHeight - footerHeight
+	if bodyHeight < 3 {
+		headerHeight = 4
+		bodyHeight = maxInt(1, height-headerHeight-footerHeight)
+	}
+
+	header := normalizeBlock(m.header(width, headerHeight < 8), width, headerHeight)
+	body := m.body(width, bodyHeight, narrow)
+	footer := normalizeBlock(m.footer(width, narrow), width, footerHeight)
+	return strings.Join([]string{header, body, footer}, "\n")
 }
 
-func (m Model) header(width int) string {
+func (m Model) body(width, height int, narrow bool) string {
+	if narrow {
+		return m.narrowBody(width, height)
+	}
+
+	gap := 2
+	navWidth := minInt(26, maxInt(20, width/4))
+	if width-navWidth-gap < 36 {
+		return m.narrowBody(width, height)
+	}
+	detailWidth := width - navWidth - gap
+	left := renderPanel(m.nav(panelContentWidth(navWidth), panelContentHeight(height)), navWidth, height)
+	right := renderPanel(m.detail(panelContentWidth(detailWidth)), detailWidth, height)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	return normalizeBlock(body, width, height)
+}
+
+func (m Model) narrowBody(width, height int) string {
+	navHeight := minInt(6, maxInt(3, height/4))
+	if height-navHeight < 4 {
+		navHeight = maxInt(1, height/3)
+	}
+	detailHeight := maxInt(1, height-navHeight)
+	nav := renderPanel(m.nav(panelContentWidth(width), panelContentHeight(navHeight)), width, navHeight)
+	detail := renderPanel(m.detail(panelContentWidth(width)), width, detailHeight)
+	return normalizeBlock(lipgloss.JoinVertical(lipgloss.Left, nav, detail), width, height)
+}
+
+func (m Model) header(width int, compact bool) string {
 	counts := severityCounts(m.analysis.Findings)
 	stack := stackLine(m.analysis.Stack)
 	if width < 88 {
@@ -135,32 +166,74 @@ func (m Model) header(width int) string {
 		),
 		aiStatus(m.analysis.AI),
 	}
-	return headerStyle.Width(width - 2).Render(strings.Join(lines, "\n"))
-}
-
-func (m Model) nav() string {
-	var b strings.Builder
-	fmt.Fprintln(&b, mutedStyle.Render("Sections"))
-	for i, section := range sections {
-		line := "  " + section
-		if i == m.cursor {
-			line = selectedStyle.Render("> " + section)
-		}
-		fmt.Fprintln(&b, line)
+	style := headerStyle.MarginBottom(0).Width(maxInt(1, width-2))
+	if compact {
+		lines = lines[:3]
+		style = style.Padding(0, 2)
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return style.Render(strings.Join(lines, "\n"))
 }
 
-func (m Model) compactNav() string {
-	var items []string
-	for i, section := range sections {
+func (m Model) nav(width, height int) string {
+	width = maxInt(8, width)
+	height = maxInt(1, height)
+	lines := []string{mutedStyle.Render("Sections")}
+	if height == 1 {
+		return lines[0]
+	}
+
+	visible := maxInt(1, height-1)
+	offset := navScrollOffset(m.cursor, visible)
+	end := minInt(len(sections), offset+visible)
+	if offset > 0 && visible > 1 {
+		lines = append(lines, mutedStyle.Render("  ..."))
+		offset++
+	}
+	if end < len(sections) && visible > 1 {
+		end--
+	}
+	for i := offset; i < end; i++ {
+		line := "  " + sections[i]
 		if i == m.cursor {
-			items = append(items, selectedStyle.Render(section))
+			line = selectedStyle.Render("> " + sections[i])
 		} else {
-			items = append(items, mutedStyle.Render(section))
+			line = mutedStyle.Render("  " + sections[i])
 		}
+		lines = append(lines, line)
 	}
-	return strings.Join(items, "  ")
+	if end < len(sections) {
+		lines = append(lines, mutedStyle.Render("  ..."))
+	}
+	return fitContent(strings.Join(lines, "\n"), width, height, false)
+}
+
+func navScrollOffset(cursor, visible int) int {
+	if visible >= len(sections) {
+		return 0
+	}
+	if cursor < 0 {
+		return 0
+	}
+	if cursor >= len(sections) {
+		cursor = len(sections) - 1
+	}
+	offset := cursor - visible/2
+	if offset < 0 {
+		return 0
+	}
+	maxOffset := len(sections) - visible
+	if offset > maxOffset {
+		return maxOffset
+	}
+	return offset
+}
+
+func (m Model) footer(width int, narrow bool) string {
+	text := "up/down or j/k navigate  r export reports  q quit"
+	if narrow {
+		text = "j/k move  r export  q quit"
+	}
+	return mutedStyle.Width(width).Render(truncate(text, width))
 }
 
 func (m Model) detail(width int) string {
@@ -873,6 +946,148 @@ func truncate(text string, max int) string {
 		return text
 	}
 	return string(runes[:max-3]) + "..."
+}
+
+func renderPanel(content string, width, height int) string {
+	width = maxInt(8, width)
+	height = maxInt(1, height)
+	innerWidth := panelContentWidth(width)
+	innerHeight := panelContentHeight(height)
+	fitted := fitContent(content, innerWidth, innerHeight, true)
+	rendered := panelStyle.MarginBottom(0).Width(maxInt(1, width-2)).Height(maxInt(1, height-2)).Render(fitted)
+	return normalizeBlock(rendered, width, height)
+}
+
+func panelContentWidth(width int) int {
+	return maxInt(1, width-6)
+}
+
+func panelContentHeight(height int) int {
+	return maxInt(1, height-4)
+}
+
+func normalizeBlock(block string, width, height int) string {
+	width = maxInt(1, width)
+	height = maxInt(1, height)
+	lines := strings.Split(strings.ReplaceAll(block, "\r\n", "\n"), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	out := make([]string, 0, height)
+	for i := 0; i < height; i++ {
+		line := ""
+		if i < len(lines) {
+			line = lines[i]
+		}
+		out = append(out, fitLine(line, width))
+	}
+	return strings.Join(out, "\n")
+}
+
+func fitContent(content string, width, height int, moreHint bool) string {
+	width = maxInt(1, width)
+	height = maxInt(1, height)
+	raw := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	if len(raw) > 0 && raw[len(raw)-1] == "" {
+		raw = raw[:len(raw)-1]
+	}
+	var lines []string
+	for _, line := range raw {
+		lines = append(lines, wrapOrClipLine(line, width)...)
+	}
+	if len(lines) > height {
+		if moreHint && height > 0 {
+			hidden := len(lines) - height + 1
+			lines = append(lines[:height-1], mutedStyle.Render(fmt.Sprintf("... and %d more", hidden)))
+		} else {
+			lines = lines[:height]
+		}
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	for i, line := range lines {
+		lines[i] = fitLine(line, width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wrapOrClipLine(line string, width int) []string {
+	if lipgloss.Width(line) <= width {
+		return []string{line}
+	}
+	if strings.Contains(line, "\x1b") {
+		return []string{truncate(stripANSI(line), width)}
+	}
+	return wrapPlainLine(line, width)
+}
+
+func wrapPlainLine(line string, width int) []string {
+	width = maxInt(1, width)
+	leading := lineIndent(line)
+	available := maxInt(8, width-lipgloss.Width(leading))
+	var out []string
+	current := ""
+	for _, word := range strings.Fields(strings.TrimSpace(line)) {
+		next := word
+		if current != "" {
+			next = current + " " + word
+		}
+		if lipgloss.Width(next) > available && current != "" {
+			out = append(out, leading+current)
+			current = word
+			continue
+		}
+		current = next
+	}
+	if current != "" {
+		out = append(out, leading+current)
+	}
+	if len(out) == 0 {
+		return []string{truncate(line, width)}
+	}
+	return out
+}
+
+func fitLine(line string, width int) string {
+	width = maxInt(1, width)
+	if lipgloss.Width(line) > width {
+		line = truncate(stripANSI(line), width)
+	}
+	for lipgloss.Width(line) < width {
+		line += " "
+	}
+	return line
+}
+
+func lineIndent(line string) string {
+	var b strings.Builder
+	for _, r := range line {
+		if r != ' ' && r != '\t' {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func stripANSI(text string) string {
+	var b strings.Builder
+	inEscape := false
+	for _, r := range text {
+		if inEscape {
+			if r >= '@' && r <= '~' {
+				inEscape = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			inEscape = true
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func writeTextList(b *strings.Builder, label string, items []string, limit, width int) {
