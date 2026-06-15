@@ -139,6 +139,27 @@ func TestAskHelpSectionRendersInputPrompt(t *testing.T) {
 	assertContains(t, out, "Ask:")
 	assertContains(t, out, ">")
 	assertContains(t, out, "Ask a question about this analysis")
+	if strings.Contains(out, "38;5;") || strings.Contains(out, "\x1b") {
+		t.Fatalf("ask input leaked ANSI styling text:\n%s", out)
+	}
+}
+
+func TestAskHelpInputPromptDoesNotLeakANSIWhenFitted(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.cursor = sectionIndex(t, "Ask Help")
+
+	out := stripANSI(model.detailWithHeight(80, 24))
+	assertContains(t, out, "Ask: > Ask a question about this analysis")
+	if strings.Contains(out, "38;5;") || strings.Contains(out, "\x1b") {
+		t.Fatalf("fitted ask input leaked ANSI styling text:\n%s", out)
+	}
+}
+
+func TestStripANSIConsumesCSIParameters(t *testing.T) {
+	got := stripANSI("\x1b[38;5;240mAsk a question\x1b[0m")
+	if got != "Ask a question" {
+		t.Fatalf("stripANSI = %q", got)
+	}
 }
 
 func TestAskHelpSubmitUpdatesDisplayedQA(t *testing.T) {

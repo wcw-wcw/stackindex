@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1253,19 +1254,43 @@ func lineIndent(line string) string {
 
 func stripANSI(text string) string {
 	var b strings.Builder
-	inEscape := false
-	for _, r := range text {
-		if inEscape {
-			if r >= '@' && r <= '~' {
-				inEscape = false
+	for i := 0; i < len(text); {
+		if text[i] != '\x1b' {
+			r, size := utf8.DecodeRuneInString(text[i:])
+			b.WriteRune(r)
+			i += size
+			continue
+		}
+		i++
+		if i >= len(text) {
+			break
+		}
+		switch text[i] {
+		case '[':
+			i++
+			for i < len(text) {
+				c := text[i]
+				i++
+				if c >= '@' && c <= '~' {
+					break
+				}
 			}
-			continue
+		case ']':
+			i++
+			for i < len(text) {
+				if text[i] == '\a' {
+					i++
+					break
+				}
+				if text[i] == '\x1b' && i+1 < len(text) && text[i+1] == '\\' {
+					i += 2
+					break
+				}
+				i++
+			}
+		default:
+			i++
 		}
-		if r == '\x1b' {
-			inEscape = true
-			continue
-		}
-		b.WriteRune(r)
 	}
 	return b.String()
 }
