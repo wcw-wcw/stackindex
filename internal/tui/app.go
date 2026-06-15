@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,9 +9,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/will/stackmap/internal/models"
+	"github.com/will/stackmap/internal/qa"
 	"github.com/will/stackmap/internal/report"
 )
 
@@ -39,10 +42,21 @@ type Model struct {
 	height   int
 	status   string
 	err      error
+
+	askInput  textinput.Model
+	askTyping bool
+	askResult *models.QAResult
+	askStatus string
+	askErr    error
 }
 
 func New(analysis *models.Analysis, root string) Model {
-	return Model{analysis: analysis, root: root, width: 100, height: 32}
+	input := textinput.New()
+	input.Placeholder = "Ask a question about this analysis"
+	input.Prompt = "> "
+	input.CharLimit = 240
+	input.Width = 72
+	return Model{analysis: analysis, root: root, width: 100, height: 32, askInput: input}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -55,6 +69,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 	case tea.KeyMsg:
+		if sections[m.cursor] == "Ask Help" {
+			next, cmd, handled := m.updateAskHelp(msg)
+			if handled {
+				return next, cmd
+			}
+			m = next
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -75,14 +96,99 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.leaveAskInput()
 			}
 		case "down", "j":
 			if m.cursor < len(sections)-1 {
 				m.cursor++
+				m.leaveAskInput()
 			}
 		}
 	}
 	return m, nil
+}
+
+func (m Model) updateAskHelp(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit, true
+	}
+	if m.askTyping {
+		switch msg.String() {
+		case "esc":
+			m.leaveAskInput()
+			m.askStatus = "Question cleared."
+			return m, nil, true
+		case "enter":
+			m.submitAskQuestion()
+			return m, nil, true
+		}
+		var cmd tea.Cmd
+		m.askInput, cmd = m.askInput.Update(msg)
+		return m, cmd, true
+	}
+
+	switch msg.String() {
+	case "enter":
+		if strings.TrimSpace(m.askInput.Value()) == "" {
+			return m, nil, true
+		}
+		m.submitAskQuestion()
+		return m, nil, true
+	case "esc":
+		m.leaveAskInput()
+		m.cursor = 0
+		return m, nil, true
+	case "backspace":
+		m.cursor = 0
+		return m, nil, true
+	case "up", "k", "down", "j", "q", "r":
+		return m, nil, false
+	}
+	if isTextInputKey(msg) {
+		m.askTyping = true
+		m.askInput.Focus()
+		var cmd tea.Cmd
+		m.askInput, cmd = m.askInput.Update(msg)
+		return m, cmd, true
+	}
+	return m, nil, false
+}
+
+func (m *Model) submitAskQuestion() {
+	question := strings.TrimSpace(m.askInput.Value())
+	if question == "" {
+		m.askStatus = "Type a question before pressing Enter."
+		m.askErr = nil
+		return
+	}
+	result := qa.Ask(context.Background(), m.analysis, question, qa.Options{})
+	if err := qa.WriteLatest(m.root, result); err != nil {
+		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+err.Error())
+		m.askErr = err
+		m.askStatus = "Answered, but could not save latest Q&A."
+	} else {
+		m.askErr = nil
+		m.askStatus = "Answered and saved to .stackmap/qa/latest-question.json."
+	}
+	m.askResult = result
+	m.leaveAskInput()
+}
+
+func (m *Model) leaveAskInput() {
+	m.askTyping = false
+	m.askInput.Blur()
+	m.askInput.SetValue("")
+}
+
+func isTextInputKey(msg tea.KeyMsg) bool {
+	if len(msg.Runes) > 0 {
+		return true
+	}
+	switch msg.String() {
+	case "space":
+		return true
+	}
+	return false
 }
 
 func (m Model) View() string {
@@ -133,7 +239,7 @@ func (m Model) body(width, height int, narrow bool) string {
 	}
 	detailWidth := width - navWidth - gap
 	left := renderPanel(m.nav(panelContentWidth(navWidth), panelContentHeight(height)), navWidth, height)
-	right := renderPanel(m.detail(panelContentWidth(detailWidth)), detailWidth, height)
+	right := renderPanel(m.detailWithHeight(panelContentWidth(detailWidth), panelContentHeight(height)), detailWidth, height)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 	return normalizeBlock(body, width, height)
 }
@@ -145,7 +251,7 @@ func (m Model) narrowBody(width, height int) string {
 	}
 	detailHeight := maxInt(1, height-navHeight)
 	nav := renderPanel(m.nav(panelContentWidth(width), panelContentHeight(navHeight)), width, navHeight)
-	detail := renderPanel(m.detail(panelContentWidth(width)), width, detailHeight)
+	detail := renderPanel(m.detailWithHeight(panelContentWidth(width), panelContentHeight(detailHeight)), width, detailHeight)
 	return normalizeBlock(lipgloss.JoinVertical(lipgloss.Left, nav, detail), width, height)
 }
 
@@ -237,6 +343,10 @@ func (m Model) footer(width int, narrow bool) string {
 }
 
 func (m Model) detail(width int) string {
+	return m.detailWithHeight(width, 0)
+}
+
+func (m Model) detailWithHeight(width, height int) string {
 	switch sections[m.cursor] {
 	case "Audit":
 		return m.auditDetail(width)
@@ -255,7 +365,7 @@ func (m Model) detail(width int) string {
 	case "AI Notes":
 		return m.aiNotesDetail(width)
 	case "Ask Help":
-		return m.askHelpDetail(width)
+		return m.askHelpDetail(width, height)
 	case "Findings":
 		return m.findingsDetail(width)
 	case "Tests":
@@ -574,32 +684,31 @@ func (m Model) aiNotesDetail(width int) string {
 		return b.String()
 	}
 	ai := m.analysis.AI
-	fmt.Fprintln(&b, "Deterministic summary:")
-	writeWrapped(&b, report.DeterministicAISummary(m.analysis), width, "  ")
-	fmt.Fprintf(&b, "\nStatus: %s\n", strings.TrimPrefix(aiStatus(ai), "AI: "))
+	fmt.Fprintf(&b, "Status: %s\n", strings.TrimPrefix(aiStatus(ai), "AI: "))
 	if ai.Model != "" {
 		fmt.Fprintf(&b, "Model: %s\n", ai.Model)
 	}
 	if len(ai.AttemptedModels) > 0 {
 		fmt.Fprintf(&b, "Attempted: %s\n", strings.Join(ai.AttemptedModels, ", "))
 	}
-	if ai.Warning != "" || ai.ParseError != "" || ai.Relevance == "low_confidence" {
-		fmt.Fprintln(&b, "\nLocal AI notes unavailable or not useful for this repository.")
-		return b.String()
-	}
 	switch {
-	case strings.TrimSpace(ai.LocalNotes) != "":
+	case hasUsableTUILocalNotes(ai):
 		fmt.Fprintln(&b, "\nLocal AI Notes:")
 		writeWrapped(&b, strings.TrimSpace(ai.LocalNotes), width, "  ")
+	case ai.Warning != "" || ai.Relevance == "low_confidence":
+		fmt.Fprintln(&b, "\nLocal AI notes unavailable or not useful for this repository.")
+		return b.String()
 	case ai.ProjectSummary != "" || ai.ArchitectureOverview != "" || len(ai.KeyStrengths)+len(ai.PotentialRisks)+len(ai.RecommendedNextSteps) > 0:
 		writeAIStructuredSections(&b, ai, width)
 	default:
 		fmt.Fprintln(&b, "\nLocal AI notes unavailable or not useful for this repository.")
 	}
+	fmt.Fprintln(&b, "\nDeterministic summary:")
+	writeWrapped(&b, report.DeterministicAISummary(m.analysis), width, "  ")
 	return b.String()
 }
 
-func (m Model) askHelpDetail(width int) string {
+func (m Model) askHelpDetail(width, height int) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, sectionTitleStyle.Render("Ask / Q&A Help"))
 	fmt.Fprintln(&b, "Examples:")
@@ -614,17 +723,35 @@ func (m Model) askHelpDetail(width int) string {
 	}
 	fmt.Fprintln(&b, "\nSupported categories:")
 	writeInlineList(&b, []string{"purpose", "stack", "structure", "file connections", "API routes", "environment", "database/storage", "tests", "deployment readiness"}, width)
-	if result, ok := m.latestQA(); ok {
-		fmt.Fprintln(&b, "\nLatest saved Q&A:")
-		fmt.Fprintf(&b, "Q: %s\n", truncate(result.Question, width-3))
-		writeWrapped(&b, "A: "+result.Answer, width, "")
-		if result.Confidence != "" {
-			fmt.Fprintf(&b, "Confidence: %s\n", result.Confidence)
-		}
+	if m.askResult != nil {
+		writeQAResult(&b, "Current Q&A", m.askResult, width)
+	} else if result, ok := m.latestQA(); ok {
+		writeQAResult(&b, "Latest saved Q&A", result, width)
 	} else {
 		fmt.Fprintln(&b, "\nNo saved Q&A result found at .stackmap/qa/latest-question.json.")
 	}
+	if m.askStatus != "" {
+		fmt.Fprintf(&b, "\nStatus: %s\n", m.askStatus)
+	}
+	if m.askErr != nil {
+		fmt.Fprintf(&b, "Error: %v\n", m.askErr)
+	}
+	input := m.askInputLine(width)
+	if height > 0 {
+		inputHeight := tuiLineCount(input)
+		contentHeight := maxInt(1, height-inputHeight)
+		main := fitContent(b.String(), width, contentHeight, true)
+		return main + "\n" + input
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, input)
 	return b.String()
+}
+
+func (m Model) askInputLine(width int) string {
+	input := m.askInput
+	input.Width = maxInt(20, width-7)
+	return "Ask: " + input.View()
 }
 
 func (m Model) latestQA() (*models.QAResult, bool) {
@@ -640,6 +767,52 @@ func (m Model) latestQA() (*models.QAResult, bool) {
 		return nil, false
 	}
 	return &result, true
+}
+
+func hasUsableTUILocalNotes(ai *models.AISummary) bool {
+	return ai != nil &&
+		strings.TrimSpace(ai.LocalNotes) != "" &&
+		ai.Warning == "" &&
+		ai.Relevance != "low_confidence"
+}
+
+func writeQAResult(b *strings.Builder, label string, result *models.QAResult, width int) {
+	if result == nil {
+		return
+	}
+	fmt.Fprintf(b, "\n%s:\n", label)
+	fmt.Fprintf(b, "Q: %s\n", truncate(result.Question, width-3))
+	writeWrapped(b, "A: "+result.Answer, width, "")
+	if result.Confidence != "" {
+		fmt.Fprintf(b, "Confidence: %s\n", result.Confidence)
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Fprintf(b, "Warnings: %s\n", truncate(strings.Join(result.Warnings, "; "), width-10))
+	}
+	if len(result.Evidence) > 0 {
+		fmt.Fprintln(b, "Evidence:")
+		for i, evidence := range result.Evidence {
+			if i >= 3 {
+				fmt.Fprintf(b, "%s %d more evidence items\n", mutedStyle.Render("..."), len(result.Evidence)-i)
+				break
+			}
+			text := evidence.Label
+			if evidence.Value != "" {
+				text += ": " + evidence.Value
+			}
+			if evidence.Path != "" {
+				text += " (" + evidence.Path + ")"
+			}
+			writeWrapped(b, "- "+text, width, "")
+		}
+	}
+}
+
+func tuiLineCount(out string) int {
+	if out == "" {
+		return 0
+	}
+	return len(strings.Split(out, "\n"))
 }
 
 func writeAIStructuredSections(b *strings.Builder, ai *models.AISummary, width int) {

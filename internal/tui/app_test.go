@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/will/stackmap/internal/models"
 )
 
@@ -89,6 +91,27 @@ func TestReportsHideAIParseWarningForGeneratedText(t *testing.T) {
 	}
 }
 
+func TestAINotesRenderLocalNotesForGeneratedTextWithParseError(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled:    true,
+		Status:     "generated_text",
+		Model:      "llama3.2:3b",
+		LocalNotes: "This repository is a local-first Go CLI with a Bubble Tea TUI.",
+		RawText:    "This repository is a local-first Go CLI with a Bubble Tea TUI.",
+		ParseError: "response did not contain a JSON object",
+	}
+	model := testModel(t, analysis, t.TempDir())
+	model.cursor = sectionIndex(t, "AI Notes")
+
+	out := stripANSI(model.detail(80))
+	assertContains(t, out, "Local AI Notes")
+	assertContains(t, out, "local-first Go CLI")
+	if strings.Contains(out, "Local AI notes unavailable") || strings.Contains(out, "response did not contain a JSON object") {
+		t.Fatalf("AI notes view hid usable notes or showed parse internals:\n%s", out)
+	}
+}
+
 func TestAskHelpSectionRendersLatestQuestion(t *testing.T) {
 	root := t.TempDir()
 	qaDir := filepath.Join(root, ".stackmap", "qa")
@@ -106,6 +129,55 @@ func TestAskHelpSectionRendersLatestQuestion(t *testing.T) {
 	assertContains(t, out, "Ask / Q&A Help")
 	assertContains(t, out, "Latest saved Q&A")
 	assertContains(t, out, "Where are the API routes?")
+}
+
+func TestAskHelpSectionRendersInputPrompt(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.cursor = sectionIndex(t, "Ask Help")
+
+	out := stripANSI(model.detail(80))
+	assertContains(t, out, "Ask:")
+	assertContains(t, out, ">")
+	assertContains(t, out, "Ask a question about this analysis")
+}
+
+func TestAskHelpSubmitUpdatesDisplayedQA(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.cursor = sectionIndex(t, "Ask Help")
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("What is this project for?")})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	out := stripANSI(model.detail(100))
+	assertContains(t, out, "Current Q&A")
+	assertContains(t, out, "What is this project for?")
+	assertContains(t, out, "Go CLI/TUI repository analysis tool")
+	assertContains(t, out, "Confidence: high")
+	assertContains(t, out, "Evidence:")
+}
+
+func TestAskHelpSubmitWritesLatestQuestion(t *testing.T) {
+	root := t.TempDir()
+	model := testModel(t, fixtureAnalysis(), root)
+	model.cursor = sectionIndex(t, "Ask Help")
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Where are the API routes?")})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	data, err := os.ReadFile(filepath.Join(root, ".stackmap", "qa", "latest-question.json"))
+	if err != nil {
+		t.Fatalf("read latest qa: %v", err)
+	}
+	var result models.QAResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal latest qa: %v", err)
+	}
+	if result.Question != "Where are the API routes?" {
+		t.Fatalf("latest question = %q", result.Question)
+	}
+	if strings.TrimSpace(result.Answer) == "" {
+		t.Fatalf("latest answer was empty: %s", string(data))
+	}
 }
 
 func TestEmptyStatesDoNotPanic(t *testing.T) {
@@ -301,6 +373,16 @@ func testModel(t *testing.T, analysis *models.Analysis, root string) Model {
 	model.width = 100
 	model.height = 32
 	return model
+}
+
+func updateModel(t *testing.T, model Model, msg tea.Msg) Model {
+	t.Helper()
+	next, _ := model.Update(msg)
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("updated model type = %T", next)
+	}
+	return updated
 }
 
 func sectionIndex(t *testing.T, name string) int {
