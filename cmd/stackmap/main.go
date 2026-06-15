@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/will/stackmap/internal/ai"
-	"github.com/will/stackmap/internal/analyzers"
+	"github.com/will/stackmap/internal/app"
+	"github.com/will/stackmap/internal/audit"
 	"github.com/will/stackmap/internal/models"
 	"github.com/will/stackmap/internal/qa"
 	"github.com/will/stackmap/internal/report"
@@ -107,24 +107,19 @@ func ask(args []string) error {
 	if question == "" {
 		return errors.New("ask question cannot be empty")
 	}
-	root, err := filepath.Abs(target)
+	analyzeResult, err := app.Analyze(context.Background(), app.AnalyzeOptions{Path: target})
 	if err != nil {
 		return err
 	}
-	analysis, err := analyzers.Analyze(root)
+	result, err := app.Ask(context.Background(), analyzeResult.Analysis, app.AskOptions{
+		Root:     analyzeResult.Root,
+		Question: question,
+		UseAI:    *enableAI,
+		Model:    *model,
+		AIDebug:  *aiDebug,
+	})
 	if err != nil {
 		return err
-	}
-	opts := qa.Options{UseAI: *enableAI, Model: *model}
-	if *aiDebug {
-		opts.DebugDir = filepath.Join(root, ".stackmap", "ai-debug", "ask")
-	}
-	result := qa.Ask(context.Background(), analysis, question, opts)
-	latestErr, historyErr := qa.WriteLatestAndAppendHistory(root, result)
-	if latestErr != nil {
-		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+latestErr.Error())
-	} else if historyErr != nil {
-		result.Warnings = append(result.Warnings, "could not append .stackmap/qa/history.jsonl: "+historyErr.Error())
 	}
 	if *jsonOut {
 		data, err := qa.MarshalJSON(result)
@@ -161,36 +156,30 @@ func analyze(args []string, auditMode bool) error {
 	if fs.NArg() > 0 {
 		target = fs.Arg(0)
 	}
-	root, err := filepath.Abs(target)
-	if err != nil {
-		return err
-	}
-
-	analysis, err := analyzers.Analyze(root)
-	if err != nil {
-		return err
-	}
-	if *enableAI {
-		opts := ai.SummaryOptions{}
-		if *aiDebug {
-			opts.DebugDir = filepath.Join(root, ".stackmap", "ai-debug")
-		}
-		analysis.AI = ai.SummarizeWithOptions(context.Background(), analysis, *model, opts)
-		if analysis.AI.Warning != "" {
-			fmt.Fprintf(os.Stderr, "stackmap: %s\n", analysis.AI.Warning)
-		}
-	}
-	if auditMode {
-		analysis.Audit = EvaluateAudit(analysis, AuditOptions{
+	result, err := app.Analyze(context.Background(), app.AnalyzeOptions{
+		Path:     target,
+		RunAudit: auditMode,
+		AuditOptions: audit.Options{
 			AllowMedium:       *allowMedium,
 			AllowMissingTests: *allowMissingTests,
 			FailOnLow:         *failOnLow,
-		})
+		},
+		UseAI:   *enableAI,
+		Model:   *model,
+		AIDebug: *aiDebug,
+	})
+	if err != nil {
+		return err
+	}
+	root := result.Root
+	analysis := result.Analysis
+	if analysis.AI != nil && analysis.AI.Warning != "" {
+		fmt.Fprintf(os.Stderr, "stackmap: %s\n", analysis.AI.Warning)
 	}
 
 	if *jsonOut {
 		if auditMode {
-			if err := report.ExportAll(root, analysis); err != nil {
+			if err := app.ExportReports(root, analysis); err != nil {
 				return err
 			}
 		}
@@ -205,7 +194,7 @@ func analyze(args []string, auditMode bool) error {
 		return nil
 	}
 
-	if err := report.ExportAll(root, analysis); err != nil {
+	if err := app.ExportReports(root, analysis); err != nil {
 		return err
 	}
 	if nonInteractiveAudit {
@@ -227,12 +216,6 @@ func printExportSummary(root string) {
 	fmt.Println("Note: .stackmap is a hidden folder on macOS Finder. Press Cmd+Shift+. in Finder to show hidden files.")
 }
 
-type AuditOptions struct {
-	AllowMedium       bool
-	AllowMissingTests bool
-	FailOnLow         bool
-}
-
 type auditFailure struct {
 	exitCode int
 }
@@ -246,178 +229,6 @@ func auditError(result *models.AuditResult) error {
 		return nil
 	}
 	return auditFailure{exitCode: result.ExitCode}
-}
-
-func EvaluateAudit(analysis *models.Analysis, opts AuditOptions) *models.AuditResult {
-	result := &models.AuditResult{
-		Mode:              "deployment-readiness",
-		AllowMedium:       opts.AllowMedium,
-		AllowMissingTests: opts.AllowMissingTests,
-		FailOnLow:         opts.FailOnLow,
-	}
-
-	high, medium, low := auditSeverityCounts(analysis)
-	if high > 0 {
-		result.Reasons = append(result.Reasons, pluralizeCount(high, "high finding")+" detected.")
-	}
-	if medium > 0 {
-		message := pluralizeCount(medium, "medium finding") + " detected."
-		if opts.AllowMedium {
-			result.Warnings = append(result.Warnings, message)
-		} else {
-			result.Reasons = append(result.Reasons, message)
-		}
-	}
-	if low > 0 {
-		message := pluralizeCount(low, "low finding") + " detected."
-		if opts.FailOnLow {
-			result.Reasons = append(result.Reasons, message)
-		} else {
-			result.Warnings = append(result.Warnings, message)
-		}
-	}
-	if !auditStackDetected(analysis.Stack) {
-		result.Reasons = append(result.Reasons, "No stack was detected.")
-	}
-	if analysis.Env.UsesEnvVars && analysis.Env.ExampleFile == "" {
-		result.Reasons = append(result.Reasons, "Environment variables were detected but no `.env.example` file was found.")
-	}
-	result.HasBackendSurface = auditHasBackendSurface(analysis)
-	result.RequiresHealthEndpoint = auditDeploymentDetected(analysis) && result.HasBackendSurface
-	if auditDeploymentDetected(analysis) && !analysis.Deployment.HasHealthEndpoint {
-		if result.HasBackendSurface {
-			result.Reasons = append(result.Reasons, "Backend/API deployment surface detected but no health endpoint was found.")
-		} else {
-			result.Warnings = append(result.Warnings, "Deployment target detected without a health endpoint; this may be acceptable for static frontend apps.")
-		}
-	}
-	if !auditTestsDetected(analysis.Tests) {
-		message := "Tests were not detected."
-		if opts.AllowMissingTests {
-			result.Warnings = append(result.Warnings, message)
-		} else {
-			result.Reasons = append(result.Reasons, message)
-		}
-	}
-
-	result.Passed = len(result.Reasons) == 0
-	if result.Passed {
-		result.ExitCode = 0
-	} else {
-		result.ExitCode = 1
-	}
-	return result
-}
-
-func auditSeverityCounts(analysis *models.Analysis) (int, int, int) {
-	var high, medium, low int
-	testsAlreadyAudited := !auditTestsDetected(analysis.Tests)
-	for _, finding := range analysis.Findings {
-		switch finding.Severity {
-		case models.SeverityHigh:
-			high++
-		case models.SeverityMedium:
-			medium++
-		case models.SeverityLow:
-			if testsAlreadyAudited && finding.Category == "tests" {
-				continue
-			}
-			low++
-		}
-	}
-	return high, medium, low
-}
-
-func auditStackDetected(stack models.StackInfo) bool {
-	return len(stack.Languages)+len(stack.Frameworks)+len(stack.Libraries)+len(stack.Databases)+len(stack.Testing)+len(stack.Deployment) > 0
-}
-
-func auditTestsDetected(tests models.TestAnalysis) bool {
-	return tests.HasTestFiles || tests.HasTestScript
-}
-
-func auditDeploymentDetected(analysis *models.Analysis) bool {
-	return len(analysis.Stack.Deployment) > 0
-}
-
-func auditHasBackendSurface(analysis *models.Analysis) bool {
-	if len(analysis.Routes) > 0 || analysis.Deployment.HasHealthEndpoint {
-		return true
-	}
-	if hasAnyLower(analysis.Stack.Frameworks, "express", "fastify", "koa", "hono") {
-		return true
-	}
-	if auditPackageHasBackendIndicator(analysis.PackageInfo) {
-		return true
-	}
-	return false
-}
-
-func auditPackageHasBackendIndicator(pkg *models.PackageInfo) bool {
-	if pkg == nil {
-		return false
-	}
-	backendDeps := []string{
-		"express",
-		"fastify",
-		"koa",
-		"hono",
-		"@hono/node-server",
-		"@fastify/http-proxy",
-		"apollo-server",
-		"graphql-yoga",
-	}
-	for dep := range allPackageDeps(pkg) {
-		if hasAnyLower([]string{dep}, backendDeps...) {
-			return true
-		}
-	}
-	for name, command := range pkg.Scripts {
-		if auditScriptLooksBackend(name, command) {
-			return true
-		}
-	}
-	return false
-}
-
-func allPackageDeps(pkg *models.PackageInfo) map[string]bool {
-	deps := map[string]bool{}
-	for name := range pkg.Dependencies {
-		deps[name] = true
-	}
-	for name := range pkg.DevDependencies {
-		deps[name] = true
-	}
-	return deps
-}
-
-func auditScriptLooksBackend(name, command string) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
-	command = strings.ToLower(strings.TrimSpace(command))
-	if name == "server" || strings.Contains(name, ":server") {
-		return true
-	}
-	return strings.Contains(command, "server.") || strings.Contains(command, "/server") || strings.Contains(command, " api/")
-}
-
-func hasAnyLower(values []string, needles ...string) bool {
-	needleSet := map[string]bool{}
-	for _, needle := range needles {
-		needleSet[strings.ToLower(needle)] = true
-	}
-	for _, value := range values {
-		if needleSet[strings.ToLower(strings.TrimSpace(value))] {
-			return true
-		}
-	}
-	return false
-}
-
-func pluralizeCount(count int, label string) string {
-	if count == 1 {
-		return fmt.Sprintf("1 %s", label)
-	}
-	return fmt.Sprintf("%d %ss", count, label)
 }
 
 func printAuditSummary(analysis *models.Analysis) {
