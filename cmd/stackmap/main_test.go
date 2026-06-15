@@ -11,12 +11,29 @@ import (
 	"github.com/will/stackmap/internal/models"
 )
 
-func TestAuditResultExistsInAnalysisOutputDuringAuditMode(t *testing.T) {
+func TestAnalyzeAuditLaunchesTUIWithAuditResult(t *testing.T) {
 	root := healthyProject(t)
+	called := false
+	var tuiAudit *models.AuditResult
+	restore := withLaunchTUI(func(analysis *models.Analysis, root string) error {
+		called = true
+		tuiAudit = analysis.Audit
+		return nil
+	})
+	defer restore()
 
 	err := analyze([]string{root, "--audit"}, false)
 	if err != nil {
 		t.Fatalf("analyze audit returned error: %v", err)
+	}
+	if !called {
+		t.Fatal("analyze --audit did not launch TUI")
+	}
+	if tuiAudit == nil {
+		t.Fatal("TUI analysis did not include audit result")
+	}
+	if !tuiAudit.Passed || tuiAudit.ExitCode != 0 {
+		t.Fatalf("TUI audit result = %+v, want passed with exit code 0", tuiAudit)
 	}
 
 	analysis := readAnalysisJSON(t, root)
@@ -25,6 +42,47 @@ func TestAuditResultExistsInAnalysisOutputDuringAuditMode(t *testing.T) {
 	}
 	if !analysis.Audit.Passed || analysis.Audit.ExitCode != 0 {
 		t.Fatalf("audit result = %+v, want passed with exit code 0", analysis.Audit)
+	}
+}
+
+func TestAnalyzeAuditNoTUIStaysNonInteractive(t *testing.T) {
+	root := healthyProject(t)
+	called := false
+	restore := withLaunchTUI(func(analysis *models.Analysis, root string) error {
+		called = true
+		return errors.New("TUI should not launch")
+	})
+	defer restore()
+
+	err := analyze([]string{root, "--audit", "--no-tui"}, false)
+	if err != nil {
+		t.Fatalf("analyze --audit --no-tui returned error: %v", err)
+	}
+	if called {
+		t.Fatal("analyze --audit --no-tui launched TUI")
+	}
+
+	analysis := readAnalysisJSON(t, root)
+	if analysis.Audit == nil {
+		t.Fatal("analysis.json did not include audit result")
+	}
+}
+
+func TestAuditCommandStaysNonInteractive(t *testing.T) {
+	root := healthyProject(t)
+	called := false
+	restore := withLaunchTUI(func(analysis *models.Analysis, root string) error {
+		called = true
+		return errors.New("TUI should not launch")
+	})
+	defer restore()
+
+	err := run([]string{"audit", root})
+	if err != nil {
+		t.Fatalf("audit command returned error: %v", err)
+	}
+	if called {
+		t.Fatal("audit command launched TUI")
 	}
 }
 
@@ -429,4 +487,12 @@ func assertAuditFailsWith(t *testing.T, result *models.AuditResult, reason strin
 
 func contains(items []string, want string) bool {
 	return strings.Contains("\x00"+strings.Join(items, "\x00")+"\x00", "\x00"+want+"\x00")
+}
+
+func withLaunchTUI(fn func(*models.Analysis, string) error) func() {
+	previous := launchTUI
+	launchTUI = fn
+	return func() {
+		launchTUI = previous
+	}
 }

@@ -53,10 +53,40 @@ func TestAuditSectionRendersWhenPresent(t *testing.T) {
 	model := testModel(t, fixtureAnalysis(), t.TempDir())
 	model.cursor = sectionIndex(t, "Audit")
 
-	out := model.detail(80)
+	out := stripANSI(model.detail(80))
 	assertContains(t, out, "Audit")
-	assertContains(t, out, "Status:")
+	assertContains(t, out, "Status: passed")
+	assertContains(t, out, "Exit code: 0")
+	assertContains(t, out, "Flags: allow-medium=false  allow-missing-tests=false  fail-on-low=false")
 	assertContains(t, out, "Warnings")
+	assertContains(t, out, "Review generated reports before release.")
+}
+
+func TestOverviewRendersAuditStatusWhenPresent(t *testing.T) {
+	model := testModel(t, fixtureAnalysis(), t.TempDir())
+	model.cursor = sectionIndex(t, "Overview")
+
+	out := stripANSI(model.detail(80))
+	assertContains(t, out, "Audit: passed (exit 0)")
+}
+
+func TestReportsHideAIParseWarningForGeneratedText(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.AI = &models.AISummary{
+		Enabled:    true,
+		Status:     "generated_text",
+		Model:      "llama3.2:3b",
+		RawText:    "Plain text summary.",
+		ParseError: "response did not contain a JSON object",
+	}
+	model := testModel(t, analysis, t.TempDir())
+	model.cursor = sectionIndex(t, "Reports")
+
+	out := stripANSI(model.detail(80))
+	assertContains(t, out, "AI: summary generated with llama3.2:3b")
+	if strings.Contains(out, "AI parse warning") || strings.Contains(out, "response did not contain a JSON object") {
+		t.Fatalf("reports view showed parse internals for generated_text AI:\n%s", out)
+	}
 }
 
 func TestAskHelpSectionRendersLatestQuestion(t *testing.T) {

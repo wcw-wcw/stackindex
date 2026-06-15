@@ -46,6 +46,8 @@ Ask mode answers from StackMap's deterministic local analysis first. With
 --ai, local Ollama may polish the bounded evidence, but AI is never required.
 `
 
+var launchTUI = tui.Run
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		var failure auditFailure
@@ -148,7 +150,9 @@ func analyze(args []string, auditMode bool) error {
 	if err := fs.Parse(normalizeAnalyzeArgs(args)); err != nil {
 		return err
 	}
-	auditMode = auditMode || *auditFlag
+	auditCommand := auditMode
+	auditMode = auditCommand || *auditFlag
+	nonInteractiveAudit := auditCommand || (auditMode && (*noTUI || *jsonOut))
 
 	target := "."
 	if fs.NArg() > 0 {
@@ -201,7 +205,7 @@ func analyze(args []string, auditMode bool) error {
 	if err := report.ExportAll(root, analysis); err != nil {
 		return err
 	}
-	if auditMode {
+	if nonInteractiveAudit {
 		printAuditSummary(analysis)
 		return auditError(analysis.Audit)
 	}
@@ -209,7 +213,7 @@ func analyze(args []string, auditMode bool) error {
 		printExportSummary(root)
 		return nil
 	}
-	return tui.Run(analysis, root)
+	return launchTUI(analysis, root)
 }
 
 func printExportSummary(root string) {

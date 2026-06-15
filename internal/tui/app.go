@@ -672,7 +672,7 @@ func (m Model) reportsDetail(width int) string {
 	fmt.Fprintf(&b, "Markdown: %s\n", truncate(filepath.Join(m.root, ".stackmap", "reports", "repo-report.md"), width-10))
 	if m.analysis.AI != nil && m.analysis.AI.Warning != "" {
 		fmt.Fprintf(&b, "\nAI warning: %s\n", truncate(m.analysis.AI.Warning, width-12))
-	} else if m.analysis.AI != nil && m.analysis.AI.ParseError != "" {
+	} else if m.analysis.AI != nil && m.analysis.AI.ParseError != "" && !aiGeneratedSuccessfully(m.analysis.AI) {
 		fmt.Fprintf(&b, "\nAI parse warning: %s\n", truncate(m.analysis.AI.ParseError, width-18))
 	} else {
 		fmt.Fprintf(&b, "\n%s\n", aiStatus(m.analysis.AI))
@@ -801,6 +801,13 @@ func auditStatus(audit *models.AuditResult) string {
 		return okStyle.Render("passed")
 	}
 	return highStyle.Render("failed")
+}
+
+func aiGeneratedSuccessfully(ai *models.AISummary) bool {
+	if ai == nil {
+		return false
+	}
+	return ai.Status == "generated_structured" || ai.Status == "generated_text"
 }
 
 func fileKindCounts(files []models.FileInfo) map[models.FileKind]int {
