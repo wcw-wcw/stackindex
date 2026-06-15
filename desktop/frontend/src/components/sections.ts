@@ -4,6 +4,7 @@ export const sections = [
   { id: 'context', label: 'Context' },
   { id: 'routes', label: 'API Routes' },
   { id: 'tests', label: 'Tests' },
+  { id: 'ask', label: 'Ask' },
   { id: 'ai', label: 'AI Notes' },
   { id: 'reports', label: 'Reports' },
 ] as const;

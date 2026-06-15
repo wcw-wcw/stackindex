@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	stackmapapp "github.com/will/stackmap/internal/app"
 	"github.com/will/stackmap/internal/models"
@@ -117,7 +118,37 @@ type ReportsView struct {
 	Directory    string `json:"directory"`
 }
 
-func AnalyzeProject(ctx context.Context, request AnalyzeRequest) (*AnalyzeResponse, error) {
+type AskRequest struct {
+	Question string `json:"question"`
+}
+
+type AskResponse struct {
+	Question   string           `json:"question"`
+	Answer     string           `json:"answer"`
+	Confidence string           `json:"confidence"`
+	Mode       string           `json:"mode"`
+	Evidence   []QAEvidenceView `json:"evidence"`
+	Warnings   []string         `json:"warnings,omitempty"`
+}
+
+type QAEvidenceView struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Path  string `json:"path,omitempty"`
+}
+
+type Session struct {
+	mu       sync.RWMutex
+	root     string
+	analysis *models.Analysis
+}
+
+func NewSession() *Session {
+	return &Session{}
+}
+
+func (s *Session) AnalyzeProject(ctx context.Context, request AnalyzeRequest) (*AnalyzeResponse, error) {
 	target := strings.TrimSpace(request.Path)
 	if target == "" {
 		return nil, errors.New("project path is required")
@@ -138,7 +169,38 @@ func AnalyzeProject(ctx context.Context, request AnalyzeRequest) (*AnalyzeRespon
 	if err := stackmapapp.ExportReports(result.Root, result.Analysis); err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
+	s.root = result.Root
+	s.analysis = result.Analysis
+	s.mu.Unlock()
 	return BuildAnalyzeResponse(result.Root, result.Analysis, request), nil
+}
+
+func (s *Session) AskQuestion(ctx context.Context, request AskRequest) (*AskResponse, error) {
+	question := strings.TrimSpace(request.Question)
+	if question == "" {
+		return nil, errors.New("question is required")
+	}
+	s.mu.RLock()
+	root := s.root
+	analysis := s.analysis
+	s.mu.RUnlock()
+	if analysis == nil || strings.TrimSpace(root) == "" {
+		return nil, errors.New("Analyze a project before asking questions.")
+	}
+	result, err := stackmapapp.Ask(ctx, analysis, stackmapapp.AskOptions{
+		Root:     root,
+		Question: question,
+		UseAI:    false,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return BuildAskResponse(result), nil
+}
+
+func AnalyzeProject(ctx context.Context, request AnalyzeRequest) (*AnalyzeResponse, error) {
+	return NewSession().AnalyzeProject(ctx, request)
 }
 
 func BuildAnalyzeResponse(root string, analysis *models.Analysis, request AnalyzeRequest) *AnalyzeResponse {
@@ -194,6 +256,34 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 		}
 	}
 	return response
+}
+
+func BuildAskResponse(result *models.QAResult) *AskResponse {
+	if result == nil {
+		return &AskResponse{Evidence: []QAEvidenceView{}}
+	}
+	response := &AskResponse{
+		Question:   result.Question,
+		Answer:     result.Answer,
+		Confidence: result.Confidence,
+		Mode:       result.Mode,
+		Evidence:   buildQAEvidenceViews(result.Evidence),
+		Warnings:   copyStrings(result.Warnings),
+	}
+	return response
+}
+
+func buildQAEvidenceViews(evidence []models.QAEvidence) []QAEvidenceView {
+	views := make([]QAEvidenceView, 0, len(evidence))
+	for _, item := range evidence {
+		views = append(views, QAEvidenceView{
+			Kind:  item.Kind,
+			Label: item.Label,
+			Value: item.Value,
+			Path:  item.Path,
+		})
+	}
+	return views
 }
 
 func buildContextView(context models.ProjectContext) ContextView {

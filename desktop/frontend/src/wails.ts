@@ -103,12 +103,33 @@ export type ReportsView = {
   directory: string;
 };
 
+export type AskRequest = {
+  question: string;
+};
+
+export type AskResponse = {
+  question: string;
+  answer: string;
+  confidence: string;
+  mode: string;
+  evidence: QAEvidenceView[];
+  warnings?: string[];
+};
+
+export type QAEvidenceView = {
+  kind: string;
+  label: string;
+  value: string;
+  path?: string;
+};
+
 declare global {
   interface Window {
     go?: {
       main?: {
         App?: {
           AnalyzeProject(request: AnalyzeRequest): Promise<AnalyzeResponse>;
+          AskQuestion(request: AskRequest): Promise<AskResponse>;
           BrowseFolder(): Promise<string>;
         };
       };
@@ -126,6 +147,10 @@ const backend = () => {
 
 export function analyzeProject(request: AnalyzeRequest) {
   return backend().AnalyzeProject(request);
+}
+
+export function askQuestion(request: AskRequest) {
+  return backend().AskQuestion(request);
 }
 
 export function browseFolder() {

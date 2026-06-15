@@ -1,17 +1,26 @@
 :root {
+  /* Terminal TUI translated to desktop: flat dark panes, not a SaaS gradient shell. */
   --bg: #1f242d;
   --panel: #222832;
   --panel-soft: #1b2028;
+
+  /* TUI linework: muted pane borders plus purple for the selected row/header emphasis. */
   --border: #4a4d4c;
   --border-strong: #6661d9;
+
+  /* Text palette mirrors the Bubble Tea screen: bright body text, gray metadata, cyan titles. */
   --text: #e8e8e8;
   --muted: #9a9a9a;
   --accent: #72d7ff;
   --accent-soft: #6661d9;
+
+  /* Severity/status colors stay direct and terminal-like. */
   --success: #68e59a;
   --warning: #f0a600;
   --danger: #e00000;
   --info: #8e855e;
+
+  /* Local paths and report files should read like terminal code, with wrapping. */
   --code-bg: #171b22;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   color: var(--text);
@@ -533,6 +542,111 @@ li {
   padding: 10px 12px;
 }
 
+.ask-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.ask-empty {
+  display: grid;
+  gap: 14px;
+}
+
+.suggested-questions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.suggested-questions button {
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-weight: 700;
+}
+
+.ask-thread {
+  display: grid;
+  gap: 12px;
+}
+
+.ask-message,
+.evidence-card {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+}
+
+.ask-message {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.ask-message > span,
+.evidence-card > span {
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.ask-message p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.ask-user {
+  border-color: var(--border-strong);
+}
+
+.ask-system {
+  border-left: 4px solid var(--warning);
+}
+
+.ask-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ask-status {
+  color: var(--muted);
+}
+
+.ask-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.supported-categories h3,
+.evidence-list h3 {
+  margin-top: 0;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 8px;
+}
+
+.evidence-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.evidence-card strong,
+.evidence-card p {
+  overflow-wrap: anywhere;
+}
+
+.evidence-card p {
+  margin: 0;
+  color: var(--text);
+}
+
 .code-line,
 code {
   font-family: inherit;
@@ -558,11 +672,13 @@ code {
   }
 
   .path-row,
+  .ask-form,
   .metrics,
   .summary-grid,
   .project-header,
   .workspace-grid,
-  .route-row {
+  .route-row,
+  .suggested-questions {
     grid-template-columns: 1fr;
   }
 

@@ -29,11 +29,38 @@ For a production build:
 wails build
 ```
 
+### Build troubleshooting
+
+In Codex's managed sandbox, Wails may fail while generating bindings or compiling the application because Go defaults to `/Users/will/Library/Caches/go-build`, which is outside the writable workspace. Use a workspace-local cache for sandboxed test/build commands:
+
+```sh
+GOCACHE=/Users/will/Workspace/stackmap/.gocache go test ./...
+```
+
+If Wails reports only `ERROR exit status 1` at `Compiling application` inside the sandbox, compare it with the command Wails prints under `-v 2`:
+
+```sh
+GOCACHE=/Users/will/Workspace/stackmap/.gocache /Users/will/go/bin/wails build -v 2
+GOCACHE=/Users/will/Workspace/stackmap/.gocache go build -buildvcs=false -tags desktop,wv2runtime.download,production -ldflags "-w -s" -o build/bin/StackMap
+```
+
+As of the desktop MVP stabilization pass, the normal unsandboxed build succeeds:
+
+```sh
+/Users/will/go/bin/wails build
+```
+
+The only compiler output from the direct `go build` path was a Wails macOS shim deprecation warning for `setShowsBaselineSeparator:` on recent macOS SDKs.
+
 To rerun the real-project desktop backend validation:
 
 ```sh
 STACKMAP_DESKTOP_ANALYZE_PATH=/Users/will/Workspace/stkapp go test ./backend -run TestAnalyzeProjectIntegration -count=1
 ```
+
+## Design Direction
+
+See [DESIGN.md](./DESIGN.md). The desktop UI should stay close to the Bubble Tea TUI: flat charcoal backgrounds, terminal-style panes, monospace typography, compact report density, cyan StackMap accents, muted metadata, purple selected sidebar rows with a `>` marker, and direct severity colors. Future polish should improve clarity without drifting into a generic SaaS dashboard, portfolio site, or stock-app visual language.
 
 ## Current Scope
 
@@ -44,7 +71,7 @@ Implemented:
 - optional local Ollama-backed AI summary using StackMap's existing fallback behavior
 - analyze through `internal/app.Analyze`
 - export reports through `internal/app.ExportReports`
-- show counts, stack chips, audit/AI status, and generated report paths
+- show a clickable report workspace with overview, audit, context, routes, tests, AI notes, and report paths
 
 Intentionally not implemented yet:
 

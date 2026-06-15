@@ -1,8 +1,11 @@
 package backend
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/will/stackmap/internal/models"
 )
@@ -81,5 +84,98 @@ func TestBuildAnalyzeResponseDefaultStatuses(t *testing.T) {
 	}
 	if response.AIStatus != "not requested" {
 		t.Fatalf("expected AI not requested, got %q", response.AIStatus)
+	}
+}
+
+func TestAskQuestionRequiresLoadedAnalysis(t *testing.T) {
+	session := NewSession()
+
+	_, err := session.AskQuestion(context.Background(), AskRequest{Question: "What is this project for?"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Error() != "Analyze a project before asking questions." {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAskQuestionAnswersAndWritesArtifacts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Example service\n\nA tiny API service.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	session := NewSession()
+	if _, err := session.AnalyzeProject(context.Background(), AnalyzeRequest{Path: root}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := session.AskQuestion(context.Background(), AskRequest{Question: "What is this project for?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response.Question != "What is this project for?" || response.Answer == "" {
+		t.Fatalf("unexpected ask response: %#v", response)
+	}
+	if response.Mode != "deterministic" {
+		t.Fatalf("expected deterministic mode, got %q", response.Mode)
+	}
+	if response.Confidence == "" {
+		t.Fatalf("expected confidence: %#v", response)
+	}
+	if len(response.Evidence) == 0 {
+		t.Fatalf("expected evidence: %#v", response)
+	}
+	for _, path := range []string{
+		filepath.Join(root, ".stackmap", "qa", "latest-question.json"),
+		filepath.Join(root, ".stackmap", "qa", "history.jsonl"),
+	} {
+		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
+			t.Fatalf("expected written qa artifact at %s: info=%#v err=%v", path, info, err)
+		}
+	}
+}
+
+func TestBuildAskResponseCopiesEvidence(t *testing.T) {
+	response := BuildAskResponse(&models.QAResult{
+		Question:   "Where are the API routes?",
+		Answer:     "Review handlers.",
+		Confidence: "high",
+		Mode:       "deterministic",
+		Evidence: []models.QAEvidence{{
+			Kind:  "route",
+			Label: "GET /health",
+			Value: "high",
+			Path:  "main.go",
+		}},
+		Warnings: []string{"example warning"},
+	})
+
+	if len(response.Evidence) != 1 || response.Evidence[0].Path != "main.go" {
+		t.Fatalf("unexpected evidence view: %#v", response.Evidence)
+	}
+	if len(response.Warnings) != 1 {
+		t.Fatalf("unexpected warnings: %#v", response.Warnings)
+	}
+}
+
+func TestBuildAnalyzeResponseHandlesAskFixture(t *testing.T) {
+	root := t.TempDir()
+	analysis := &models.Analysis{
+		RepoName:    "example",
+		RepoPath:    root,
+		GeneratedAt: time.Now(),
+		Context: models.ProjectContext{
+			Purpose:    "Example service",
+			Confidence: "high",
+		},
+	}
+
+	response := BuildAnalyzeResponse(root, analysis, AnalyzeRequest{})
+	if response.RepoPath != root {
+		t.Fatalf("unexpected repo path: %s", response.RepoPath)
 	}
 }

@@ -9,11 +9,12 @@ import (
 )
 
 type App struct {
-	ctx context.Context
+	ctx     context.Context
+	session *backend.Session
 }
 
 func NewApp() *App {
-	return &App{}
+	return &App{session: backend.NewSession()}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -30,5 +31,9 @@ func (a *App) BrowseFolder() (string, error) {
 }
 
 func (a *App) AnalyzeProject(request backend.AnalyzeRequest) (*backend.AnalyzeResponse, error) {
-	return backend.AnalyzeProject(context.Background(), request)
+	return a.session.AnalyzeProject(context.Background(), request)
+}
+
+func (a *App) AskQuestion(request backend.AskRequest) (*backend.AskResponse, error) {
+	return a.session.AskQuestion(context.Background(), request)
 }

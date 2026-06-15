@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { AnalyzeResponse } from '../wails';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { AnalyzeResponse, askQuestion, AskResponse, QAEvidenceView } from '../wails';
 import { MetricCard } from './MetricCard';
 import { ReportPath } from './ReportPath';
 import { Sidebar } from './Sidebar';
@@ -9,6 +9,13 @@ import { SectionId } from './sections';
 
 export function ReportWorkspace({ result, onRunAgain }: { result: AnalyzeResponse; onRunAgain: () => void }) {
   const [activeSection, setActiveSection] = useState<SectionId>('overview');
+  const scrollRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [activeSection]);
 
   return (
     <section className="workspace">
@@ -26,12 +33,13 @@ export function ReportWorkspace({ result, onRunAgain }: { result: AnalyzeRespons
 
       <div className="workspace-grid">
         <Sidebar active={activeSection} onSelect={setActiveSection} />
-        <article className="detail-panel">
+        <article className="detail-panel" ref={scrollRef}>
           {activeSection === 'overview' && <Overview result={result} />}
           {activeSection === 'audit' && <Audit result={result} />}
           {activeSection === 'context' && <Context result={result} />}
           {activeSection === 'routes' && <Routes result={result} />}
           {activeSection === 'tests' && <Tests result={result} />}
+          {activeSection === 'ask' && <Ask />}
           {activeSection === 'ai' && <AINotes result={result} />}
           {activeSection === 'reports' && <Reports result={result} />}
         </article>
@@ -144,6 +152,189 @@ function Tests({ result }: { result: AnalyzeResponse }) {
   );
 }
 
+const suggestedQuestions = [
+  'What is this project for?',
+  'What stack does this use?',
+  'Where are the API routes?',
+  'Where is the database used?',
+  'What should I review before deployment?',
+  'What tests exist?',
+  'What environment variables are used?',
+  'What files should I read first?',
+  'How is this project organized?',
+  'How do the frontend and backend connect?',
+];
+
+const supportedCategories = [
+  'purpose',
+  'stack',
+  'API routes',
+  'database/storage',
+  'deployment readiness',
+  'tests',
+  'environment variables',
+  'important files',
+  'project structure',
+  'frontend/backend connection',
+];
+
+type AskMessage =
+  | { id: number; role: 'user'; text: string }
+  | { id: number; role: 'stackmap'; response: AskResponse }
+  | { id: number; role: 'system'; text: string };
+
+function Ask() {
+  const [messages, setMessages] = useState<AskMessage[]>([]);
+  const [question, setQuestion] = useState('');
+  const [isAsking, setIsAsking] = useState(false);
+
+  async function submitAsk(event: FormEvent) {
+    event.preventDefault();
+    const nextQuestion = question.trim();
+    if (!nextQuestion || isAsking) {
+      return;
+    }
+    setQuestion('');
+    const userMessage: AskMessage = { id: Date.now(), role: 'user', text: nextQuestion };
+    if (nextQuestion === '/help') {
+      setMessages((current) => [
+        ...current,
+        userMessage,
+        { id: Date.now() + 1, role: 'system', text: helpText() },
+      ]);
+      return;
+    }
+    setMessages((current) => [...current, userMessage]);
+    setIsAsking(true);
+    try {
+      const response = await askQuestion({ question: nextQuestion });
+      setMessages((current) => [...current, { id: Date.now() + 1, role: 'stackmap', response }]);
+    } catch (err) {
+      setMessages((current) => [...current, { id: Date.now() + 1, role: 'system', text: errorMessage(err) }]);
+    } finally {
+      setIsAsking(false);
+    }
+  }
+
+  return (
+    <>
+      <SectionHeader title="Ask" subtitle="Deterministic Q&A from the current StackMap analysis evidence." />
+      <div className="ask-panel">
+        {messages.length === 0 ? (
+          <div className="ask-empty">
+            <p className="body-copy">Ask about the current report. This pass uses local deterministic evidence only.</p>
+            <SuggestedQuestions onPick={setQuestion} />
+            <SupportedCategories />
+          </div>
+        ) : (
+          <div className="ask-thread" aria-live="polite">
+            {messages.map((message) => <AskBubble key={message.id} message={message} />)}
+            {isAsking && <p className="ask-status">StackMap is checking report evidence...</p>}
+          </div>
+        )}
+        <form className="ask-form" onSubmit={submitAsk}>
+          <input
+            type="text"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder='Ask a question or type "/help"'
+            aria-label="Ask StackMap"
+          />
+          <button type="submit" disabled={!question.trim() || isAsking}>
+            Send
+          </button>
+        </form>
+      </div>
+    </>
+  );
+}
+
+function SuggestedQuestions({ onPick }: { onPick: (question: string) => void }) {
+  return (
+    <div className="suggested-questions">
+      {suggestedQuestions.map((item) => (
+        <button key={item} type="button" onClick={() => onPick(item)}>
+          {item}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SupportedCategories() {
+  return (
+    <div className="supported-categories">
+      <h3>Supported categories</h3>
+      <div className="chips">
+        {supportedCategories.map((item) => <StackChip key={item}>{item}</StackChip>)}
+      </div>
+    </div>
+  );
+}
+
+function AskBubble({ message }: { message: AskMessage }) {
+  if (message.role === 'user') {
+    return (
+      <div className="ask-message ask-user">
+        <span>you</span>
+        <p>{message.text}</p>
+      </div>
+    );
+  }
+  if (message.role === 'system') {
+    return (
+      <div className="ask-message ask-system">
+        <span>stackmap</span>
+        <p className="pre-line">{message.text}</p>
+      </div>
+    );
+  }
+  const response = message.response;
+  const isUnsupported = response.warnings?.includes('unsupported question type');
+  return (
+    <div className="ask-message ask-stackmap">
+      <span>stackmap</span>
+      <p>{response.answer}</p>
+      <div className="ask-meta">
+        <StatusBadge status={`confidence: ${response.confidence || 'unknown'}`} />
+        <StatusBadge status={`mode: ${response.mode || 'deterministic'}`} />
+      </div>
+      {response.warnings?.length ? <ListBlock title="Warnings" items={response.warnings} empty="No warnings." /> : null}
+      {isUnsupported && <SupportedCategories />}
+      <EvidenceList evidence={response.evidence} />
+    </div>
+  );
+}
+
+function EvidenceList({ evidence }: { evidence: QAEvidenceView[] }) {
+  if (!evidence.length) {
+    return <p className="empty">No evidence returned for this answer.</p>;
+  }
+  return (
+    <div className="evidence-list">
+      <h3>Evidence</h3>
+      {evidence.map((item, index) => (
+        <div className="evidence-card" key={`${item.kind}-${item.label}-${item.path}-${index}`}>
+          <span>{item.kind}</span>
+          <strong>{item.label}</strong>
+          {item.value && <p>{item.value}</p>}
+          {item.path && <code>{item.path}</code>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function helpText() {
+  return [
+    'Supported question categories:',
+    supportedCategories.join(', '),
+    '',
+    'Suggested questions:',
+    ...suggestedQuestions.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
 function AINotes({ result }: { result: AnalyzeResponse }) {
   const ai = result.ai;
   return (
@@ -244,4 +435,11 @@ function aiLabel(result: AnalyzeResponse) {
     return `generated with ${result.aiModel}`;
   }
   return result.aiStatus || 'not requested';
+}
+
+function errorMessage(err: unknown) {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
 }
