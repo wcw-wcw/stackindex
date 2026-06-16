@@ -34,7 +34,7 @@ func TestAPIRoutesQuestion(t *testing.T) {
 
 func TestImportantFilesQuestion(t *testing.T) {
 	result := AnswerDeterministically(fixtureAnalysis(), "What are the most important files?")
-	assertAnswerContains(t, result, "Good starting files")
+	assertAnswerContains(t, result, "Read these first")
 	assertEvidenceKind(t, result, "file")
 }
 
@@ -73,6 +73,85 @@ func TestFrontendBackendQuestionIncludesClientEvidence(t *testing.T) {
 	assertEvidenceKind(t, result, "file")
 	assertEvidenceLabel(t, result, "Frontend API client")
 	assertEvidenceKind(t, result, "route")
+}
+
+func TestQuestionClassificationForExpandedCategories(t *testing.T) {
+	cases := map[string]questionType{
+		"Where is auth handled?":             questionAuth,
+		"Where is the database initialized?": questionDatabase,
+		"How do I run this locally?":         questionLocalRun,
+		"What files should I read first?":    questionStructure,
+		"Where does the frontend call API?":  questionConnection,
+		"Where are env vars used?":           questionEnvironment,
+		"What looks deployment-sensitive?":   questionDeployment,
+	}
+	for question, want := range cases {
+		t.Run(question, func(t *testing.T) {
+			if got := classify(question); got != want {
+				t.Fatalf("classify(%q) = %q, want %q", question, got, want)
+			}
+		})
+	}
+}
+
+func TestAuthQuestionUsesConservativeEvidence(t *testing.T) {
+	result := AnswerDeterministically(fixtureAnalysis(), "Where is auth handled?")
+	assertAnswerContains(t, result, "likely")
+	assertAnswerContains(t, result, "/api/auth/login")
+	assertEvidenceKind(t, result, "route")
+	assertEvidenceLabel(t, result, "Likely auth file")
+}
+
+func TestAuthQuestionWithWeakEvidenceDoesNotClaimAuthExists(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.Routes = nil
+	analysis.Files = []models.FileInfo{{Path: "src/lib/author.ts", Kind: models.FileKindSource}}
+	analysis.Structure.KeyFiles = nil
+	analysis.Dependencies = models.DependencyGraph{}
+	analysis.Env = models.EnvAnalysis{}
+	analysis.PackageInfo.Dependencies = nil
+
+	result := AnswerDeterministically(analysis, "Where is auth handled?")
+	assertAnswerContains(t, result, "did not find strong auth")
+	if len(result.Evidence) != 0 {
+		t.Fatalf("weak auth fixture should not return evidence: %+v", result.Evidence)
+	}
+}
+
+func TestLocalRunQuestionUsesPackageScripts(t *testing.T) {
+	result := AnswerDeterministically(fixtureAnalysis(), "How do I run this locally?")
+	assertAnswerContains(t, result, "dev: next dev")
+	assertAnswerContains(t, result, "build: next build")
+	assertAnswerContains(t, result, "test: vitest run")
+	assertEvidenceKind(t, result, "script")
+}
+
+func TestDatabaseQuestionIncludesClientAndMigrationPaths(t *testing.T) {
+	result := AnswerDeterministically(fixtureAnalysis(), "Where is the DB client?")
+	assertAnswerContains(t, result, "Database-related files include")
+	assertAnswerContains(t, result, "src/lib/db.ts")
+	assertEvidenceKind(t, result, "file")
+	assertEvidenceKind(t, result, "migration")
+}
+
+func TestEnvironmentQuestionIncludesEnvUsagePaths(t *testing.T) {
+	result := AnswerDeterministically(fixtureAnalysis(), "Where are env vars used?")
+	assertAnswerContains(t, result, "Environment variables are used")
+	assertEvidenceLabel(t, result, "DATABASE_URL")
+	for _, ev := range result.Evidence {
+		if ev.Label == "DATABASE_URL" && strings.Contains(ev.Path, "src/lib/db.ts") {
+			return
+		}
+	}
+	t.Fatalf("expected DATABASE_URL evidence to include source path: %+v", result.Evidence)
+}
+
+func TestReadFirstQuestionRanksReadmeAndEntrypoints(t *testing.T) {
+	result := AnswerDeterministically(fixtureAnalysis(), "What files should I read first?")
+	assertAnswerContains(t, result, "README.md")
+	assertAnswerContains(t, result, "package.json")
+	assertAnswerContains(t, result, "src/app/page.tsx")
+	assertEvidenceKind(t, result, "file")
 }
 
 func TestDeploymentReadinessPrioritizesBlockers(t *testing.T) {
@@ -264,6 +343,7 @@ func fixtureAnalysis() *models.Analysis {
 			Scripts: map[string]string{
 				"test":                "vitest run",
 				"dev":                 "next dev",
+				"build":               "next build",
 				"db:migrate":          "node scripts/migrate.mjs",
 				"db:import":           "node scripts/import-catalog.mjs",
 				"embeddings:generate": "node scripts/generate-embeddings.mjs",
@@ -271,6 +351,7 @@ func fixtureAnalysis() *models.Analysis {
 			Dependencies: map[string]string{
 				"@neondatabase/serverless": "^0.10.0",
 				"pg":                       "^8.0.0",
+				"next-auth":                "^4.0.0",
 			},
 		},
 		Context: models.ProjectContext{
@@ -290,6 +371,7 @@ func fixtureAnalysis() *models.Analysis {
 			KeyFiles: []models.FileRole{
 				{Path: "src/app/page.tsx", Role: "Frontend entry page", Importance: "high"},
 				{Path: "src/lib/db.ts", Role: "Database helper", Importance: "high"},
+				{Path: "src/lib/auth.ts", Role: "Authentication helper", Importance: "high"},
 				{Path: "frontend/src/api/games.ts", Role: "Frontend API client", Importance: "high"},
 			},
 		},
@@ -307,6 +389,8 @@ func fixtureAnalysis() *models.Analysis {
 			{Path: "frontend/src/api/games.ts", Kind: models.FileKindSource, Language: "TypeScript"},
 			{Path: "backend/main.py", Kind: models.FileKindSource, Language: "Python"},
 			{Path: "src/lib/db.ts", Kind: models.FileKindSource, Language: "TypeScript"},
+			{Path: "src/lib/auth.ts", Kind: models.FileKindSource, Language: "TypeScript"},
+			{Path: "src/middleware.ts", Kind: models.FileKindSource, Language: "TypeScript"},
 		},
 		Routes: []models.RouteInfo{
 			{Method: "GET", Path: "/api/health", SourceFile: "src/app/api/health/route.ts", Confidence: "high"},
@@ -316,8 +400,8 @@ func fixtureAnalysis() *models.Analysis {
 		Env: models.EnvAnalysis{
 			UsesEnvVars:                true,
 			ExampleFile:                ".env.example",
-			ExampleVars:                []string{"DATABASE_URL"},
-			UsedVars:                   []models.EnvVar{{Name: "DATABASE_URL", Files: []string{"src/lib/db.ts"}, Classification: "required_app_config"}},
+			ExampleVars:                []string{"DATABASE_URL", "AUTH_SECRET"},
+			UsedVars:                   []models.EnvVar{{Name: "DATABASE_URL", Files: []string{"src/lib/db.ts"}, Classification: "required_app_config"}, {Name: "AUTH_SECRET", Files: []string{"src/lib/auth.ts"}, Classification: "required_app_config"}},
 			MissingRequiredFromExample: []string{"ALPACA_API_KEY"},
 			EnvFilePresent:             true,
 		},
@@ -330,6 +414,7 @@ func fixtureAnalysis() *models.Analysis {
 		},
 		Deployment: models.DeploymentAnalysis{
 			HasReadme:            true,
+			ReadmeMentionsSetup:  true,
 			HasEnvExample:        true,
 			HasVercelConfig:      true,
 			HasHealthEndpoint:    true,

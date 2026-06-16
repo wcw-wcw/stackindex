@@ -44,7 +44,9 @@ const (
 	questionRoutes      questionType = "routes"
 	questionStructure   questionType = "structure"
 	questionGraph       questionType = "graph"
+	questionAuth        questionType = "auth"
 	questionDatabase    questionType = "database"
+	questionLocalRun    questionType = "local_run"
 	questionDeployment  questionType = "deployment"
 	questionTests       questionType = "tests"
 	questionEnvironment questionType = "environment"
@@ -77,8 +79,12 @@ func AnswerDeterministically(analysis *models.Analysis, question string) *models
 		return answerStructure(analysis, question)
 	case questionGraph:
 		return answerGraph(analysis, question)
+	case questionAuth:
+		return answerAuth(analysis, question)
 	case questionDatabase:
 		return answerDatabase(analysis, question)
+	case questionLocalRun:
+		return answerLocalRun(analysis, question)
 	case questionDeployment:
 		return answerDeployment(analysis, question)
 	case questionTests:
@@ -95,25 +101,29 @@ func AnswerDeterministically(analysis *models.Analysis, question string) *models
 func classify(question string) questionType {
 	q := normalize(question)
 	switch {
-	case containsAny(q, "frontend connected to the backend", "frontend connect", "connect to the backend", "front end connected", "client connected", "frontend connect to the backend", "frontend talk to the backend", "client talk to the api", "where is the api client", "api client"):
+	case containsAny(q, "frontend connected to the backend", "frontend connect", "connect to the backend", "front end connected", "client connected", "frontend connect to the backend", "frontend talk to the backend", "client talk to the api", "where is the api client", "api client", "frontend call api", "frontend calls api", "where does the frontend call api", "where are api calls made"):
 		return questionConnection
 	case containsAny(q, "what is this project", "what is this repo for", "what is this project for", "summarize this project", "what does this app do"):
 		return questionPurpose
-	case containsAny(q, "how does this project use neon", "how does this project use postgres", "how does this project use postgresql", "what database", "what db", "where is the database configured", "are there migrations", "how does storage work", "database configured", "storage work", "use neon", "use postgres", "use postgresql", "migrations"):
+	case containsAny(q, "where is auth", "where is authentication", "where is login", "where is sign in", "where are protected routes", "where is middleware", "auth handled", "authentication handled", "login handled", "protected routes", "middleware"):
+		return questionAuth
+	case containsAny(q, "how do i run this locally", "run this locally", "local setup", "setup locally", "what scripts matter", "what scripts are important", "how do i build", "how do i test", "build and test", "dev command", "start command"):
+		return questionLocalRun
+	case containsAny(q, "how does this project use neon", "how does this project use postgres", "how does this project use postgresql", "what database", "what db", "where is the database configured", "where is the database initialized", "where is the db client", "where is db client", "where are schema files", "where are migrations", "are there migrations", "how does storage work", "database configured", "storage work", "use neon", "use postgres", "use postgresql", "migrations", "schema files"):
 		return questionDatabase
 	case containsAny(q, "what stack", "what technologies", "what frameworks", "using react", "using next", "using vite", "using fastapi"):
 		return questionStack
 	case containsAny(q, "where are the api routes", "what endpoints exist", "does this have a backend", "what routes does it expose", "api routes", "endpoints"):
 		return questionRoutes
-	case containsAny(q, "important files", "where should i start", "how is it organized", "what folders matter", "what does src/lib do", "structure", "organized"):
+	case containsAny(q, "important files", "files should i read first", "what files should i read first", "where should i start", "how is it organized", "what folders matter", "what does src/lib do", "structure", "organized", "read first"):
 		return questionStructure
 	case containsAny(q, "how are files connected", "what imports what", "most connected files", "shared modules", "dependency graph", "dependencies"):
 		return questionGraph
-	case containsAny(q, "deployment ready", "before deployment", "what are the risks", "health checks", "health check", "env example", "review before deployment"):
+	case containsAny(q, "deployment ready", "before deployment", "what are the risks", "health checks", "health check", "env example", "review before deployment", "deployment-sensitive", "deployment sensitive", "before deploying"):
 		return questionDeployment
 	case containsAny(q, "does it have tests", "how do i run tests", "test framework", "tests", "testing"):
 		return questionTests
-	case containsAny(q, "what env vars", "env configured", "missing env example", "environment variables", "env vars", "environment"):
+	case containsAny(q, "what env vars", "env configured", "missing env example", "environment variables", "env vars", "environment", "where are env vars used", "config deployment sensitive", "deployment-sensitive config"):
 		return questionEnvironment
 	default:
 		return questionUnsupported
@@ -203,8 +213,9 @@ func answerStructure(a *models.Analysis, question string) *models.QAResult {
 	if len(a.Structure.Directories) > 0 {
 		fragments = append(fragments, "Important folders include "+joinDirectoryRoles(capDirectories(a.Structure.Directories, 5))+".")
 	}
-	if len(a.Structure.KeyFiles) > 0 {
-		fragments = append(fragments, "Good starting files include "+joinFileRoles(capFiles(a.Structure.KeyFiles, 5))+".")
+	startingFiles := rankedStartingFiles(a)
+	if len(startingFiles) > 0 {
+		fragments = append(fragments, "Read these first: "+joinFileRoles(capFiles(startingFiles, 6))+".")
 	}
 	answer := "StackMap did not identify important folders or files."
 	if len(fragments) > 0 {
@@ -214,7 +225,7 @@ func answerStructure(a *models.Analysis, question string) *models.QAResult {
 	for _, dir := range capDirectories(a.Structure.Directories, 6) {
 		addEvidence(&evidence, "structure", dir.Path, dir.Role, dir.Path)
 	}
-	for _, file := range capFiles(a.Structure.KeyFiles, 8) {
+	for _, file := range capFiles(startingFiles, 8) {
 		addEvidence(&evidence, "file", file.Path, file.Role, file.Path)
 	}
 	return result(question, answer, confidenceForCount(len(evidence)), evidence)
@@ -278,6 +289,69 @@ func answerDatabase(a *models.Analysis, question string) *models.QAResult {
 		sentences = append(sentences, "Database-related files include "+strings.Join(capStrings(files, 4), ", ")+".")
 	}
 	return result(question, strings.Join(sentences, " "), confidenceForCount(len(evidence)), evidence)
+}
+
+func answerAuth(a *models.Analysis, question string) *models.QAResult {
+	evidence := authEvidence(a)
+	if len(evidence) == 0 {
+		return result(question, "StackMap did not find strong auth/login/protected-route evidence. It is not claiming auth exists from weak signals alone.", ConfidenceMedium, nil)
+	}
+	var fragments []string
+	routes := authRoutes(a.Routes)
+	files := authFiles(a)
+	envNames := authEnvNames(a.Env)
+	if len(routes) > 0 {
+		fragments = append(fragments, fmt.Sprintf("Auth is likely handled around %d auth-related route%s.", len(routes), pluralS(len(routes))))
+	}
+	if len(files) > 0 {
+		fragments = append(fragments, "Likely auth/protection files include "+strings.Join(capStrings(files, 5), ", ")+".")
+	}
+	if len(envNames) > 0 {
+		fragments = append(fragments, "Auth-related configuration appears to use "+strings.Join(capStrings(envNames, 4), ", ")+".")
+	}
+	if len(fragments) == 0 {
+		fragments = append(fragments, "StackMap found heuristic auth signals; review the evidence before assuming auth is complete.")
+	}
+	return result(question, strings.Join(fragments, " "), confidenceForAuthEvidence(evidence), evidence)
+}
+
+func answerLocalRun(a *models.Analysis, question string) *models.QAResult {
+	var fragments []string
+	scripts := localRunScripts(a.PackageInfo)
+	if len(scripts) > 0 {
+		fragments = append(fragments, "Package scripts that matter: "+strings.Join(capStrings(scripts, 6), ", ")+".")
+	}
+	if a.PackageInfo != nil && a.PackageInfo.PackageManagerHint != "" {
+		fragments = append(fragments, "Package manager hint: "+a.PackageInfo.PackageManagerHint+".")
+	}
+	if module := goModuleName(a.PackageInfo); module != "" {
+		fragments = append(fragments, "Go module detected: "+module+"; `go test ./...` is the safest generic Go test command.")
+	}
+	if hasPythonSource(a) {
+		fragments = append(fragments, "Python files were detected, but StackMap only suggests Python run commands when scripts or docs identify them.")
+	}
+	if a.Deployment.ReadmeMentionsSetup {
+		fragments = append(fragments, "README appears to include setup instructions.")
+	}
+	if a.Tests.TestScript != "" {
+		fragments = append(fragments, "Tests can use the detected test script: "+a.Tests.TestScript+".")
+	}
+	if len(fragments) == 0 {
+		fragments = append(fragments, "StackMap did not find explicit local run scripts or setup clues, so it will not invent commands.")
+	}
+	evidence := []models.QAEvidence{}
+	for _, script := range scripts {
+		addEvidence(&evidence, "script", "Package script", script, "package.json")
+	}
+	if a.PackageInfo != nil {
+		addEvidence(&evidence, "package", "Package manager", a.PackageInfo.PackageManagerHint, "package.json")
+		addEvidence(&evidence, "package", "Go module", a.PackageInfo.ModuleName, "go.mod")
+	}
+	addEvidence(&evidence, "readme", "README mentions setup", fmt.Sprintf("%t", a.Deployment.ReadmeMentionsSetup), "README.md")
+	for _, file := range capStrings(a.Tests.TestFiles, 4) {
+		addEvidence(&evidence, "file", "Test file", file, file)
+	}
+	return result(question, strings.Join(fragments, " "), confidenceForCount(len(evidence)), evidence)
 }
 
 func answerDeployment(a *models.Analysis, question string) *models.QAResult {
@@ -357,6 +431,9 @@ func answerEnvironment(a *models.Analysis, question string) *models.QAResult {
 	for _, item := range capStrings(env.MissingRequiredFromExample, 5) {
 		addEvidence(&evidence, "env", "Missing required from example", item, "")
 	}
+	for _, item := range capEnvVars(env.UsedVars, 6) {
+		addEvidence(&evidence, "env", item.Name, item.Classification, strings.Join(item.Files, ", "))
+	}
 	return result(question, answer, ConfidenceHigh, evidence)
 }
 
@@ -420,11 +497,11 @@ func answerConnection(a *models.Analysis, question string) *models.QAResult {
 }
 
 func unsupported(question, detail string) *models.QAResult {
-	answer := "StackMap ask can answer evidence-based questions about project purpose, detected stack, database/storage, API routes, important files, dependency connections, deployment readiness, tests, and environment configuration."
+	answer := "StackMap ask can answer evidence-based questions about project purpose, detected stack, auth/login clues, database/storage, local setup scripts, API routes, important files, frontend/backend connections, deployment readiness, tests, and environment configuration."
 	if detail != "" {
 		answer = detail + " " + answer
 	}
-	answer += ` Try examples like "What is this project for?", "Where are the API routes?", or "What should I review before deployment?".`
+	answer += ` Better questions include "Where is auth handled?", "How do I run this locally?", "Where is the DB client?", "What files should I read first?", or "What should I review before deployment?".`
 	return &models.QAResult{
 		Question:   question,
 		Answer:     answer,
@@ -926,7 +1003,7 @@ func databaseEvidence(a *models.Analysis) []models.QAEvidence {
 		addEvidence(&evidence, "database", "Detected database", database, "")
 	}
 	for _, name := range databaseEnvNames(a.Env) {
-		addEvidence(&evidence, "env", "Database env", name, "")
+		addEvidence(&evidence, "env", "Database env", name, envVarFiles(a.Env, name))
 	}
 	for _, file := range a.Deployment.MigrationFiles {
 		addEvidence(&evidence, "migration", "Migration file", file, file)
@@ -1067,6 +1144,320 @@ func databaseFiles(a *models.Analysis) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func authEvidence(a *models.Analysis) []models.QAEvidence {
+	evidence := []models.QAEvidence{}
+	for _, route := range authRoutes(a.Routes) {
+		addEvidence(&evidence, "route", strings.TrimSpace(route.Method+" "+route.Path), route.Confidence, route.SourceFile)
+	}
+	for _, file := range authFiles(a) {
+		addEvidence(&evidence, "file", "Likely auth file", file, file)
+	}
+	for _, name := range authEnvNames(a.Env) {
+		addEvidence(&evidence, "env", "Auth env", name, "")
+	}
+	for _, dep := range authDependencies(a.PackageInfo) {
+		addEvidence(&evidence, "package", "Auth package", dep, "package.json")
+	}
+	return dedupeEvidence(evidence)
+}
+
+func authRoutes(routes []models.RouteInfo) []models.RouteInfo {
+	var out []models.RouteInfo
+	for _, route := range routes {
+		combined := strings.ToLower(route.Path + " " + route.SourceFile)
+		if looksAuthRelated(combined) {
+			out = append(out, route)
+		}
+	}
+	return capRoutes(out, 8)
+}
+
+func authFiles(a *models.Analysis) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(path, role string) {
+		path = filepath.ToSlash(strings.TrimSpace(path))
+		if path == "" || seen[path] {
+			return
+		}
+		combined := strings.ToLower(path + " " + role)
+		if !looksAuthRelated(combined) {
+			return
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	for _, file := range a.Structure.KeyFiles {
+		add(file.Path, file.Role)
+	}
+	for _, file := range a.Dependencies.TopConnectedFiles {
+		add(file.Path, file.Role+" "+file.WhyItMatters)
+	}
+	for _, node := range a.Dependencies.Nodes {
+		add(node.Path, node.Role)
+	}
+	for _, file := range a.Files {
+		add(file.Path, "")
+	}
+	for _, route := range a.Routes {
+		add(route.SourceFile, route.Path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func authEnvNames(env models.EnvAnalysis) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] || !looksAuthRelated(name) {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	for _, item := range env.UsedVars {
+		add(item.Name)
+	}
+	for _, name := range env.ExampleVars {
+		add(name)
+	}
+	for _, name := range env.MissingFromExample {
+		add(name)
+	}
+	for _, name := range env.MissingRequiredFromExample {
+		add(name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func authDependencies(pkg *models.PackageInfo) []string {
+	if pkg == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	addDeps := func(deps map[string]string) {
+		for name, version := range deps {
+			if !looksAuthRelated(name) {
+				continue
+			}
+			value := name
+			if version != "" {
+				value += "@" + version
+			}
+			if !seen[value] {
+				seen[value] = true
+				out = append(out, value)
+			}
+		}
+	}
+	addDeps(pkg.Dependencies)
+	addDeps(pkg.DevDependencies)
+	sort.Strings(out)
+	return out
+}
+
+func looksAuthRelated(value string) bool {
+	lower := strings.ToLower(value)
+	if containsAny(lower, "login", "signin", "sign-in", "sign_in", "session", "middleware", "protected", "jwt", "oauth", "nextauth", "next-auth", "clerk", "supabase/auth", "passport", "bcrypt", "password", "authentication") {
+		return true
+	}
+	for _, token := range strings.FieldsFunc(lower, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) {
+		if token == "auth" {
+			return true
+		}
+	}
+	return false
+}
+
+func confidenceForAuthEvidence(evidence []models.QAEvidence) string {
+	strong := 0
+	for _, item := range evidence {
+		if item.Kind == "route" || item.Kind == "package" {
+			strong++
+		}
+		if item.Kind == "file" && containsAny(item.Path, "/auth/", "auth.", "middleware.", "login") {
+			strong++
+		}
+	}
+	if strong >= 2 {
+		return ConfidenceHigh
+	}
+	if len(evidence) > 0 {
+		return ConfidenceMedium
+	}
+	return ConfidenceLow
+}
+
+func localRunScripts(pkg *models.PackageInfo) []string {
+	if pkg == nil {
+		return nil
+	}
+	priority := map[string]int{
+		"dev":       10,
+		"start":     20,
+		"build":     30,
+		"test":      40,
+		"lint":      50,
+		"typecheck": 60,
+		"preview":   70,
+	}
+	var scripts []string
+	for name, command := range pkg.Scripts {
+		lowerName := strings.ToLower(name)
+		lowerCommand := strings.ToLower(command)
+		if _, ok := priority[lowerName]; ok || containsAny(lowerName+" "+lowerCommand, "dev", "start", "build", "test", "lint", "typecheck", "preview", "serve") {
+			scripts = append(scripts, name+": "+command)
+		}
+	}
+	sort.Slice(scripts, func(i, j int) bool {
+		leftName, _, _ := strings.Cut(scripts[i], ":")
+		rightName, _, _ := strings.Cut(scripts[j], ":")
+		left, leftOK := priority[strings.ToLower(leftName)]
+		right, rightOK := priority[strings.ToLower(rightName)]
+		if leftOK && rightOK {
+			return left < right
+		}
+		if leftOK {
+			return true
+		}
+		if rightOK {
+			return false
+		}
+		return scripts[i] < scripts[j]
+	})
+	return scripts
+}
+
+func goModuleName(pkg *models.PackageInfo) string {
+	if pkg == nil {
+		return ""
+	}
+	return strings.TrimSpace(pkg.ModuleName)
+}
+
+func hasPythonSource(a *models.Analysis) bool {
+	for _, file := range a.Files {
+		if strings.EqualFold(file.Language, "Python") || strings.EqualFold(filepath.Ext(file.Path), ".py") {
+			return true
+		}
+	}
+	return false
+}
+
+func rankedStartingFiles(a *models.Analysis) []models.FileRole {
+	type scoredFile struct {
+		file  models.FileRole
+		score int
+	}
+	seen := map[string]int{}
+	files := map[string]models.FileRole{}
+	add := func(path, role, importance string, baseScore int) {
+		path = filepath.ToSlash(strings.TrimSpace(path))
+		if path == "" {
+			return
+		}
+		score := baseScore + startingFileScore(path, role, importance)
+		if current, ok := seen[path]; ok && current >= score {
+			return
+		}
+		seen[path] = score
+		files[path] = models.FileRole{Path: path, Role: fallback(role, inferredFileRole(path)), Importance: importance}
+	}
+	for _, file := range a.Structure.KeyFiles {
+		add(file.Path, file.Role, file.Importance, 20)
+	}
+	for _, path := range a.Dependencies.Entrypoints {
+		add(path, "Entrypoint", "high", 18)
+	}
+	for _, file := range a.Dependencies.TopConnectedFiles {
+		add(file.Path, fallback(file.Role, file.WhyItMatters), "high", 12)
+	}
+	for _, route := range a.Routes {
+		add(route.SourceFile, "API route handler", route.Confidence, 10)
+	}
+	for _, file := range a.Deployment.MigrationFiles {
+		add(file, "Migration/schema file", "medium", 8)
+	}
+	for _, file := range a.Deployment.DeploymentFiles {
+		add(file, "Deployment config", "medium", 7)
+	}
+	for _, file := range a.Files {
+		add(file.Path, "", "", 0)
+	}
+	if a.Deployment.HasReadme {
+		add("README.md", "Project overview and setup notes", "high", 30)
+	}
+	if a.PackageInfo != nil {
+		add("package.json", "Package manifest and scripts", "high", 24)
+		if a.PackageInfo.ModuleName != "" {
+			add("go.mod", "Go module manifest", "high", 22)
+		}
+	}
+	var scored []scoredFile
+	for path, file := range files {
+		scored = append(scored, scoredFile{file: file, score: seen[path]})
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].score == scored[j].score {
+			return scored[i].file.Path < scored[j].file.Path
+		}
+		return scored[i].score > scored[j].score
+	})
+	out := make([]models.FileRole, 0, len(scored))
+	for _, item := range scored {
+		out = append(out, item.file)
+	}
+	return out
+}
+
+func startingFileScore(path, role, importance string) int {
+	text := strings.ToLower(path + " " + role + " " + importance)
+	score := 0
+	switch {
+	case strings.EqualFold(filepath.Base(path), "README.md"):
+		score += 60
+	case strings.EqualFold(filepath.Base(path), "package.json"), strings.EqualFold(filepath.Base(path), "go.mod"), strings.EqualFold(filepath.Base(path), "pyproject.toml"):
+		score += 45
+	}
+	if containsAny(text, "entry", "main.", "app.", "page.", "route.", "server", "handler") {
+		score += 20
+	}
+	if containsAny(text, "database", "/db", "db.", "schema", "migration") {
+		score += 12
+	}
+	if containsAny(text, "config", "env", "docker", "vercel") {
+		score += 8
+	}
+	if strings.Contains(text, "high") {
+		score += 8
+	}
+	return score
+}
+
+func inferredFileRole(path string) string {
+	lower := strings.ToLower(path)
+	switch {
+	case strings.EqualFold(filepath.Base(path), "README.md"):
+		return "Project overview"
+	case strings.EqualFold(filepath.Base(path), "package.json"):
+		return "Package manifest and scripts"
+	case strings.EqualFold(filepath.Base(path), "go.mod"):
+		return "Go module manifest"
+	case containsAny(lower, "route.", "/api/"):
+		return "API route handler"
+	case containsAny(lower, "db", "database", "schema", "migration"):
+		return "Database/data layer"
+	default:
+		return "Relevant file"
+	}
 }
 
 func databaseContextSignals(a *models.Analysis) []string {
@@ -1292,11 +1683,34 @@ func capFindings(items []models.Finding, limit int) []models.Finding {
 	return append([]models.Finding{}, items[:limit]...)
 }
 
+func capEnvVars(items []models.EnvVar, limit int) []models.EnvVar {
+	if len(items) <= limit {
+		return append([]models.EnvVar{}, items...)
+	}
+	return append([]models.EnvVar{}, items[:limit]...)
+}
+
 func capEvidence(items []models.QAEvidence, limit int) []models.QAEvidence {
 	if len(items) <= limit {
 		return append([]models.QAEvidence{}, items...)
 	}
 	return append([]models.QAEvidence{}, items[:limit]...)
+}
+
+func fallback(value, fallbackValue string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallbackValue
+}
+
+func envVarFiles(env models.EnvAnalysis, name string) string {
+	for _, item := range env.UsedVars {
+		if item.Name == name {
+			return strings.Join(item.Files, ", ")
+		}
+	}
+	return ""
 }
 
 func confidenceOr(value, fallback string) string {
