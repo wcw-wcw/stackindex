@@ -38,6 +38,7 @@ export default function App() {
   const [sourceMode, setSourceMode] = useState<SourceMode>('local');
   const [path, setPath] = useState(defaultPath);
   const [githubUrl, setGithubUrl] = useState('');
+  const [githubRefresh, setGithubRefresh] = useState(false);
   const [runAudit, setRunAudit] = useState(true);
   const [useAI, setUseAI] = useState(false);
   const [model, setModel] = useState('');
@@ -126,7 +127,7 @@ export default function App() {
   async function analyze(event: FormEvent) {
     event.preventDefault();
     if (sourceMode === 'github') {
-      await runGitHubAnalysis(githubUrl);
+      await runGitHubAnalysis(githubUrl, githubRefresh);
       return;
     }
     await runLocalAnalysis(path);
@@ -157,36 +158,42 @@ export default function App() {
     }
   }
 
-  async function runGitHubAnalysis(repoUrl: string) {
+  async function runGitHubAnalysis(repoUrl: string, refresh = false) {
     setError('');
     setResult(null);
     setIsRunning(true);
     setStatus('Validating GitHub URL...');
     const cloneStatus = window.setTimeout(() => {
-      setStatus('Cloning repository or using cached clone...');
+      setStatus(refresh ? 'Refreshing cached clone...' : 'Using cached clone...');
     }, 250);
+    const missingCacheStatus = window.setTimeout(() => {
+      if (!refresh) {
+        setStatus('Cloning repo if cache is missing...');
+      }
+    }, 750);
     const analyzeStatus = window.setTimeout(() => {
       setStatus('Analyzing local cached files...');
-    }, 1250);
+    }, 1500);
     try {
       const nextResult = await analyzeGitHubRepo({
         url: repoUrl,
         runAudit,
         useAI,
         model,
-        refresh: false,
+        refresh,
       });
       setPath(nextResult.repoPath);
       setGithubUrl(nextResult.githubUrl || repoUrl);
       setResult(nextResult);
       setViewMode('report');
-      setStatus('Reports written to the cached clone.');
+      setStatus(refresh ? 'Refreshed cached clone and wrote reports.' : 'Reports written to the cached clone.');
       await refreshRecentProjects();
     } catch (err) {
       setError(errorMessage(err));
       setStatus('GitHub analysis error.');
     } finally {
       window.clearTimeout(cloneStatus);
+      window.clearTimeout(missingCacheStatus);
       window.clearTimeout(analyzeStatus);
       setIsRunning(false);
     }
@@ -221,10 +228,21 @@ export default function App() {
     if (project.sourceType === 'github' && project.githubUrl) {
       setSourceMode('github');
       setGithubUrl(project.githubUrl);
-      await runGitHubAnalysis(project.githubUrl);
+      setGithubRefresh(false);
+      await runGitHubAnalysis(project.githubUrl, false);
       return;
     }
     await analyzeAgain(project.repoPath);
+  }
+
+  async function refreshRecentGitHub(project: RecentProject) {
+    if (!project.githubUrl) {
+      return;
+    }
+    setSourceMode('github');
+    setGithubUrl(project.githubUrl);
+    setGithubRefresh(true);
+    await runGitHubAnalysis(project.githubUrl, true);
   }
 
   async function removeRecent(projectPath: string) {
@@ -329,6 +347,7 @@ export default function App() {
           sourceMode={sourceMode}
           path={path}
           githubUrl={githubUrl}
+          githubRefresh={githubRefresh}
           runAudit={runAudit}
           useAI={useAI}
           model={model}
@@ -341,6 +360,7 @@ export default function App() {
           onSourceModeChange={setSourceMode}
           onPathChange={setPath}
           onGitHubUrlChange={setGithubUrl}
+          onGitHubRefreshChange={setGithubRefresh}
           onRunAuditChange={setRunAudit}
           onUseAIChange={setUseAI}
           onModelChange={setModel}
@@ -349,6 +369,7 @@ export default function App() {
           onAnalyze={analyze}
           onOpenReport={openReport}
           onAnalyzeAgain={analyzeRecentAgain}
+          onRefreshGitHub={refreshRecentGitHub}
           onRemoveRecent={removeRecent}
           onClearRecent={clearRecent}
           onOpenSettings={openSettings}

@@ -66,10 +66,7 @@ func (s *Session) AnalyzeGitHubRepo(ctx context.Context, request GitHubAnalyzeRe
 	} else {
 		repo.LocalCachePath = cachePath
 	}
-	if request.Refresh {
-		return nil, errors.New("refreshing cached GitHub repositories is not implemented in this MVP; remove the cached repo to clone again")
-	}
-	if err := s.ensureGitHubClone(ctx, repo); err != nil {
+	if err := s.prepareGitHubClone(ctx, repo, request.Refresh); err != nil {
 		return nil, err
 	}
 	response, err := s.analyzeProject(ctx, AnalyzeRequest{
@@ -86,6 +83,23 @@ func (s *Session) AnalyzeGitHubRepo(ctx context.Context, request GitHubAnalyzeRe
 		return nil, err
 	}
 	return response, nil
+}
+
+func (s *Session) prepareGitHubClone(ctx context.Context, repo githubRepo, refresh bool) error {
+	if !refresh {
+		return s.ensureGitHubClone(ctx, repo)
+	}
+	info, err := os.Stat(repo.LocalCachePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return s.ensureGitHubClone(ctx, repo)
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("cached GitHub path is not a directory: %s", repo.LocalCachePath)
+	}
+	return s.refreshGitHubClone(ctx, repo)
 }
 
 func (s *Session) ensureGitHubClone(ctx context.Context, repo githubRepo) error {
@@ -115,6 +129,66 @@ func (s *Session) ensureGitHubClone(ctx context.Context, repo githubRepo) error 
 			return errors.New("git is not installed or not available on PATH")
 		}
 		return fmt.Errorf("clone failed; repository may be unavailable or private: %s", conciseCommandOutput(output))
+	}
+	return nil
+}
+
+func (s *Session) refreshGitHubClone(ctx context.Context, repo githubRepo) error {
+	if err := s.validateRefreshTarget(repo); err != nil {
+		return err
+	}
+	runner := s.gitCommandRunner()
+	if output, err := runner.Run(ctx, "git", "-C", repo.LocalCachePath, "rev-parse", "--is-inside-work-tree"); err != nil || strings.TrimSpace(output) != "true" {
+		if errors.Is(err, exec.ErrNotFound) {
+			return errors.New("git is not installed or not available on PATH")
+		}
+		return fmt.Errorf("cached GitHub path is not a usable git repository: %s", repo.LocalCachePath)
+	}
+	origin, err := runner.Run(ctx, "git", "-C", repo.LocalCachePath, "remote", "get-url", "origin")
+	if err != nil {
+		return fmt.Errorf("could not read cached GitHub origin: %s", conciseCommandOutput(origin))
+	}
+	if strings.TrimSpace(origin) != repo.CanonicalCloneURL {
+		return fmt.Errorf("cached GitHub origin does not match requested repository: got %s", strings.TrimSpace(origin))
+	}
+	branch, err := runner.Run(ctx, "git", "-C", repo.LocalCachePath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return fmt.Errorf("could not determine cached GitHub branch: %s", conciseCommandOutput(branch))
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" || branch == "HEAD" {
+		return errors.New("cached GitHub clone is not on a branch; refresh requires a checked-out branch")
+	}
+	if output, err := runner.Run(ctx, "git", "-C", repo.LocalCachePath, "fetch", "--prune", "origin"); err != nil {
+		return fmt.Errorf("could not refresh cached GitHub clone: %s", conciseCommandOutput(output))
+	}
+	if output, err := runner.Run(ctx, "git", "-C", repo.LocalCachePath, "pull", "--ff-only", "origin", branch); err != nil {
+		return fmt.Errorf("could not fast-forward cached GitHub clone: %s", conciseCommandOutput(output))
+	}
+	return nil
+}
+
+func (s *Session) validateRefreshTarget(repo githubRepo) error {
+	root, err := s.githubCacheRootPath()
+	if err != nil {
+		return err
+	}
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	cleanTarget, err := filepath.Abs(repo.LocalCachePath)
+	if err != nil {
+		return err
+	}
+	if !pathInside(cleanTarget, cleanRoot) {
+		return errors.New("refusing to refresh a cached GitHub path outside the StackMap GitHub cache root")
+	}
+	if _, err := os.Stat(filepath.Join(cleanTarget, ".git")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("cached GitHub path exists but is not a git repository: %s", cleanTarget)
+		}
+		return err
 	}
 	return nil
 }
@@ -226,6 +300,29 @@ func (s *Session) githubRepoCachePath(owner, repo string) (string, error) {
 
 func gitCloneArgs(cloneURL, targetPath string) []string {
 	return []string{"clone", "--depth", "1", cloneURL, targetPath}
+}
+
+func gitRefreshArgs(cachePath, branch string) [][]string {
+	return [][]string{
+		{"-C", cachePath, "rev-parse", "--is-inside-work-tree"},
+		{"-C", cachePath, "remote", "get-url", "origin"},
+		{"-C", cachePath, "rev-parse", "--abbrev-ref", "HEAD"},
+		{"-C", cachePath, "fetch", "--prune", "origin"},
+		{"-C", cachePath, "pull", "--ff-only", "origin", branch},
+	}
+}
+
+func pathInside(target, root string) bool {
+	target = filepath.Clean(target)
+	root = filepath.Clean(root)
+	if target == root {
+		return true
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
 }
 
 func applySourceMetadata(response *AnalyzeResponse, source sourceMetadata) {

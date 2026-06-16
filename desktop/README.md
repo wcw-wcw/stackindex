@@ -87,7 +87,6 @@ Intentionally not implemented yet:
 - private GitHub repository auth
 - GitHub tokens or GitHub API usage
 - branch selection
-- GitHub cache refresh/pull from the UI
 - cross-repo, branch, or private GitHub comparison
 - packaging
 - cloud APIs or embeddings
@@ -124,7 +123,7 @@ On macOS this is typically:
 ~/Library/Caches/StackMap/repos/github.com/<owner>/<repo>
 ```
 
-To force a fresh clone, quit the app if it is running and remove the cached repository folder manually. Refresh/pull is intentionally not exposed in this MVP.
+Use "Refresh cached clone before analysis" to update an existing cached public GitHub clone before analysis. If the cache is missing, StackMap clones as usual.
 
 Current GitHub limitations:
 

@@ -7,6 +7,7 @@ type LandingPageProps = {
   sourceMode: SourceMode;
   path: string;
   githubUrl: string;
+  githubRefresh: boolean;
   runAudit: boolean;
   useAI: boolean;
   model: string;
@@ -19,6 +20,7 @@ type LandingPageProps = {
   onSourceModeChange: (value: SourceMode) => void;
   onPathChange: (value: string) => void;
   onGitHubUrlChange: (value: string) => void;
+  onGitHubRefreshChange: (value: boolean) => void;
   onRunAuditChange: (value: boolean) => void;
   onUseAIChange: (value: boolean) => void;
   onModelChange: (value: string) => void;
@@ -27,6 +29,7 @@ type LandingPageProps = {
   onAnalyze: (event: FormEvent) => void;
   onOpenReport: (path: string) => void;
   onAnalyzeAgain: (project: RecentProject) => void;
+  onRefreshGitHub: (project: RecentProject) => void;
   onRemoveRecent: (path: string) => void;
   onClearRecent: () => void;
   onOpenSettings: () => void;
@@ -36,6 +39,7 @@ export function LandingPage({
   sourceMode,
   path,
   githubUrl,
+  githubRefresh,
   runAudit,
   useAI,
   model,
@@ -48,6 +52,7 @@ export function LandingPage({
   onSourceModeChange,
   onPathChange,
   onGitHubUrlChange,
+  onGitHubRefreshChange,
   onRunAuditChange,
   onUseAIChange,
   onModelChange,
@@ -56,6 +61,7 @@ export function LandingPage({
   onAnalyze,
   onOpenReport,
   onAnalyzeAgain,
+  onRefreshGitHub,
   onRemoveRecent,
   onClearRecent,
   onOpenSettings,
@@ -100,7 +106,12 @@ export function LandingPage({
               placeholder="https://github.com/owner/repo"
               disabled={isRunning}
             />
-            <p className="selected">Public HTTPS github.com repositories only. Cloned into the local StackMap cache; clear cache to reclone.</p>
+            <p className="selected">Public HTTPS github.com repositories only. Cloned into the local StackMap cache.</p>
+            <label className="toggle github-refresh">
+              <input type="checkbox" checked={githubRefresh} onChange={(event) => onGitHubRefreshChange(event.target.checked)} disabled={isRunning} />
+              <span>Refresh cached clone before analysis</span>
+            </label>
+            <p className="selected">Refresh updates the local cached public GitHub clone before StackMap analyzes it.</p>
           </div>
         )}
 
@@ -144,6 +155,7 @@ export function LandingPage({
         isRunning={isRunning}
         onOpenReport={onOpenReport}
         onAnalyzeAgain={onAnalyzeAgain}
+        onRefreshGitHub={onRefreshGitHub}
         onRemoveRecent={onRemoveRecent}
         onClearRecent={onClearRecent}
       />
@@ -156,6 +168,7 @@ function RecentProjects({
   isRunning,
   onOpenReport,
   onAnalyzeAgain,
+  onRefreshGitHub,
   onRemoveRecent,
   onClearRecent,
 }: {
@@ -163,6 +176,7 @@ function RecentProjects({
   isRunning: boolean;
   onOpenReport: (path: string) => void;
   onAnalyzeAgain: (project: RecentProject) => void;
+  onRefreshGitHub: (project: RecentProject) => void;
   onRemoveRecent: (path: string) => void;
   onClearRecent: () => void;
 }) {
@@ -206,6 +220,11 @@ function RecentProjects({
                 <button type="button" className="secondary" onClick={() => onAnalyzeAgain(project)} disabled={isRunning}>
                   Analyze Again
                 </button>
+                {project.sourceType === 'github' && project.githubUrl && (
+                  <button type="button" className="secondary" onClick={() => onRefreshGitHub(project)} disabled={isRunning}>
+                    Refresh + Analyze
+                  </button>
+                )}
                 <button type="button" className="secondary" onClick={() => onRemoveRecent(project.repoPath)} disabled={isRunning}>
                   Remove
                 </button>
