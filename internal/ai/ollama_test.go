@@ -1,7 +1,10 @@
 package ai
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +12,78 @@ import (
 
 	"github.com/will/stackmap/internal/models"
 )
+
+func TestListOllamaModelsSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"llama3.2:3b","modified_at":"2026-06-01T12:00:00Z","size":2019393189},{"name":"qwen:7b","size":4500000000}]}`))
+	}))
+	defer server.Close()
+
+	models, err := listOllamaModels(context.Background(), server.URL, server.Client())
+	if err != nil {
+		t.Fatalf("listOllamaModels returned error: %v", err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("models length = %d, want 2: %#v", len(models), models)
+	}
+	if models[0].Name != "llama3.2:3b" || models[0].ModifiedAt != "2026-06-01T12:00:00Z" || models[0].Size != 2019393189 {
+		t.Fatalf("first model not mapped cleanly: %#v", models[0])
+	}
+	if models[1].Name != "qwen:7b" || models[1].Size != 4500000000 {
+		t.Fatalf("second model not mapped cleanly: %#v", models[1])
+	}
+}
+
+func TestListOllamaModelsEmptyList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[]}`))
+	}))
+	defer server.Close()
+
+	models, err := listOllamaModels(context.Background(), server.URL, server.Client())
+	if err != nil {
+		t.Fatalf("listOllamaModels returned error: %v", err)
+	}
+	if len(models) != 0 {
+		t.Fatalf("models length = %d, want 0: %#v", len(models), models)
+	}
+}
+
+func TestListOllamaModelsInvalidResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer server.Close()
+
+	_, err := listOllamaModels(context.Background(), server.URL, server.Client())
+	if err == nil {
+		t.Fatal("listOllamaModels returned nil error for invalid JSON")
+	}
+	if !strings.Contains(err.Error(), "invalid model list") {
+		t.Fatalf("error = %q, want invalid model list", err.Error())
+	}
+}
+
+func TestListOllamaModelsUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	_, err := listOllamaModels(context.Background(), server.URL, server.Client())
+	if err == nil {
+		t.Fatal("listOllamaModels returned nil error for unavailable Ollama")
+	}
+	if !strings.Contains(err.Error(), "HTTP 503") {
+		t.Fatalf("error = %q, want HTTP 503", err.Error())
+	}
+}
 
 func TestBuildAIFactsheetIncludesStackProjectFactsAndCaps(t *testing.T) {
 	var routes []models.RouteInfo

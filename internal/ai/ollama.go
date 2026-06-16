@@ -56,6 +56,12 @@ type OllamaClient struct {
 	Client  *http.Client
 }
 
+type OllamaModelInfo struct {
+	Name       string `json:"name"`
+	ModifiedAt string `json:"modifiedAt,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+}
+
 type request struct {
 	Model   string                 `json:"model"`
 	Prompt  string                 `json:"prompt"`
@@ -67,6 +73,16 @@ type request struct {
 type response struct {
 	Response string `json:"response"`
 	Error    string `json:"error,omitempty"`
+}
+
+type tagsResponse struct {
+	Models []tagModel `json:"models"`
+}
+
+type tagModel struct {
+	Name       string `json:"name"`
+	ModifiedAt string `json:"modified_at"`
+	Size       int64  `json:"size"`
 }
 
 type AIFactsheet struct {
@@ -341,6 +357,47 @@ func (c OllamaClient) CheckAvailable(ctx context.Context) error {
 		return fmt.Errorf("ollama returned HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func ListOllamaModels(ctx context.Context) ([]OllamaModelInfo, error) {
+	listCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	return listOllamaModels(listCtx, defaultBaseURL, &http.Client{Timeout: 3 * time.Second})
+}
+
+func listOllamaModels(ctx context.Context, baseURL string, client *http.Client) ([]OllamaModelInfo, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 3 * time.Second}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/api/tags", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama is unavailable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("ollama returned HTTP %d", resp.StatusCode)
+	}
+	var out tagsResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return nil, fmt.Errorf("ollama returned an invalid model list: %w", err)
+	}
+	models := make([]OllamaModelInfo, 0, len(out.Models))
+	for _, model := range out.Models {
+		name := strings.TrimSpace(model.Name)
+		if name == "" {
+			continue
+		}
+		models = append(models, OllamaModelInfo{
+			Name:       name,
+			ModifiedAt: model.ModifiedAt,
+			Size:       model.Size,
+		})
+	}
+	return models, nil
 }
 
 func (c OllamaClient) Generate(ctx context.Context, prompt string) (string, error) {

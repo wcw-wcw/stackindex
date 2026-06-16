@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/will/stackmap/internal/ai"
 	stackmapapp "github.com/will/stackmap/internal/app"
 	"github.com/will/stackmap/internal/models"
 	stackmapreport "github.com/will/stackmap/internal/report"
@@ -27,6 +28,9 @@ type AnalyzeRequest struct {
 type AnalyzeResponse struct {
 	RepoName       string         `json:"repoName"`
 	RepoPath       string         `json:"repoPath"`
+	SourceType     string         `json:"sourceType,omitempty"`
+	GitHubURL      string         `json:"githubUrl,omitempty"`
+	LocalCachePath string         `json:"localCachePath,omitempty"`
 	GeneratedAt    string         `json:"generatedAt"`
 	Files          int            `json:"files"`
 	Routes         int            `json:"routes"`
@@ -136,6 +140,18 @@ type AskResponse struct {
 	Warnings   []string         `json:"warnings,omitempty"`
 }
 
+type OllamaModelsResponse struct {
+	Available bool              `json:"available"`
+	Models    []OllamaModelView `json:"models"`
+	Message   string            `json:"message,omitempty"`
+}
+
+type OllamaModelView struct {
+	Name       string `json:"name"`
+	ModifiedAt string `json:"modifiedAt,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+}
+
 type QAEvidenceView struct {
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
@@ -148,6 +164,7 @@ type Session struct {
 	root               string
 	analysis           *models.Analysis
 	recentProjectsPath string
+	gitRunner          commandRunner
 }
 
 func NewSession() *Session {
@@ -155,6 +172,10 @@ func NewSession() *Session {
 }
 
 func (s *Session) AnalyzeProject(ctx context.Context, request AnalyzeRequest) (*AnalyzeResponse, error) {
+	return s.analyzeProject(ctx, request, sourceMetadata{SourceType: sourceTypeLocal})
+}
+
+func (s *Session) analyzeProject(ctx context.Context, request AnalyzeRequest, source sourceMetadata) (*AnalyzeResponse, error) {
 	target := strings.TrimSpace(request.Path)
 	if target == "" {
 		return nil, errors.New("project path is required")
@@ -180,6 +201,7 @@ func (s *Session) AnalyzeProject(ctx context.Context, request AnalyzeRequest) (*
 	s.analysis = result.Analysis
 	s.mu.Unlock()
 	response := BuildAnalyzeResponse(result.Root, result.Analysis, request)
+	applySourceMetadata(response, source)
 	_ = s.upsertRecentProject(response)
 	return response, nil
 }
@@ -226,6 +248,7 @@ func (s *Session) OpenExistingReport(path string) (*AnalyzeResponse, error) {
 
 	response := BuildAnalyzeResponse(absPath, &analysis, analyzeRequestFromAnalysis(&analysis))
 	response.LoadedFromDisk = true
+	applySourceMetadata(response, s.sourceMetadataForPath(absPath))
 	_ = s.upsertRecentProject(response)
 	return response, nil
 }
@@ -253,8 +276,28 @@ func (s *Session) AskQuestion(ctx context.Context, request AskRequest) (*AskResp
 	return BuildAskResponse(result), nil
 }
 
+func (s *Session) ListOllamaModels(ctx context.Context) (*OllamaModelsResponse, error) {
+	models, err := ai.ListOllamaModels(ctx)
+	if err != nil {
+		return &OllamaModelsResponse{
+			Available: false,
+			Models:    []OllamaModelView{},
+			Message:   "Ollama unavailable - default analysis still works without AI.",
+		}, nil
+	}
+	return &OllamaModelsResponse{
+		Available: true,
+		Models:    buildOllamaModelViews(models),
+		Message:   "Ollama models loaded.",
+	}, nil
+}
+
 func AnalyzeProject(ctx context.Context, request AnalyzeRequest) (*AnalyzeResponse, error) {
 	return NewSession().AnalyzeProject(ctx, request)
+}
+
+func ListOllamaModels(ctx context.Context) (*OllamaModelsResponse, error) {
+	return NewSession().ListOllamaModels(ctx)
 }
 
 func BuildAnalyzeResponse(root string, analysis *models.Analysis, request AnalyzeRequest) *AnalyzeResponse {
@@ -357,6 +400,18 @@ func buildQAEvidenceViews(evidence []models.QAEvidence) []QAEvidenceView {
 			Label: item.Label,
 			Value: item.Value,
 			Path:  item.Path,
+		})
+	}
+	return views
+}
+
+func buildOllamaModelViews(models []ai.OllamaModelInfo) []OllamaModelView {
+	views := make([]OllamaModelView, 0, len(models))
+	for _, model := range models {
+		views = append(views, OllamaModelView{
+			Name:       model.Name,
+			ModifiedAt: model.ModifiedAt,
+			Size:       model.Size,
 		})
 	}
 	return views

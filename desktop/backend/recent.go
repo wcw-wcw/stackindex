@@ -13,6 +13,9 @@ const maxRecentProjects = 20
 type RecentProject struct {
 	RepoName       string         `json:"repoName"`
 	RepoPath       string         `json:"repoPath"`
+	SourceType     string         `json:"sourceType,omitempty"`
+	GitHubURL      string         `json:"githubUrl,omitempty"`
+	LocalCachePath string         `json:"localCachePath,omitempty"`
 	LastAnalyzed   string         `json:"lastAnalyzed"`
 	Files          int            `json:"files"`
 	Routes         int            `json:"routes"`
@@ -87,6 +90,9 @@ func recentProjectFromResponse(response *AnalyzeResponse) RecentProject {
 	return RecentProject{
 		RepoName:       response.RepoName,
 		RepoPath:       response.RepoPath,
+		SourceType:     response.SourceType,
+		GitHubURL:      response.GitHubURL,
+		LocalCachePath: response.LocalCachePath,
 		LastAnalyzed:   response.GeneratedAt,
 		Files:          response.Files,
 		Routes:         response.Routes,
@@ -117,6 +123,9 @@ func readRecentProjects(path string) ([]RecentProject, error) {
 		if strings.TrimSpace(project.RepoPath) == "" {
 			continue
 		}
+		if strings.TrimSpace(project.SourceType) == "" {
+			project.SourceType = sourceTypeLocal
+		}
 		project.Findings = copyFindingCounts(project.Findings)
 		cleaned = append(cleaned, project)
 		if len(cleaned) >= maxRecentProjects {
@@ -124,6 +133,29 @@ func readRecentProjects(path string) ([]RecentProject, error) {
 		}
 	}
 	return cleaned, nil
+}
+
+func (s *Session) sourceMetadataForPath(path string) sourceMetadata {
+	target, err := normalizeProjectPath(path)
+	if err != nil {
+		return sourceMetadata{SourceType: sourceTypeLocal}
+	}
+	projects, err := readRecentProjects(s.recentPath())
+	if err != nil {
+		return sourceMetadata{SourceType: sourceTypeLocal}
+	}
+	for _, project := range projects {
+		projectPath, err := normalizeProjectPath(project.RepoPath)
+		if err != nil || projectPath != target {
+			continue
+		}
+		return sourceMetadata{
+			SourceType:     project.SourceType,
+			GitHubURL:      project.GitHubURL,
+			LocalCachePath: project.LocalCachePath,
+		}
+	}
+	return sourceMetadata{SourceType: sourceTypeLocal}
 }
 
 func writeRecentProjects(path string, projects []RecentProject) error {

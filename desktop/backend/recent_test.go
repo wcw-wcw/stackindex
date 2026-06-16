@@ -78,6 +78,41 @@ func TestRecentProjectsMalformedFileHandling(t *testing.T) {
 	}
 }
 
+func TestRecentProjectsReadsLegacyEntries(t *testing.T) {
+	session := testSession(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(session.recentProjectsPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`[
+  {
+    "repoName": "legacy",
+    "repoPath": "` + filepath.ToSlash(root) + `",
+    "lastAnalyzed": "2026-06-15 12:00:00",
+    "files": 3,
+    "routes": 1,
+    "tests": 2,
+    "findings": {"high": 1},
+    "jsonReportPath": "` + filepath.ToSlash(filepath.Join(root, ".stackmap", "analysis.json")) + `",
+    "mdReportPath": "` + filepath.ToSlash(filepath.Join(root, ".stackmap", "reports", "repo-report.md")) + `"
+  }
+]`)
+	if err := os.WriteFile(session.recentProjectsPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	projects, err := session.GetRecentProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("expected one legacy project, got %#v", projects)
+	}
+	if projects[0].RepoName != "legacy" || projects[0].SourceType != sourceTypeLocal || projects[0].Findings["medium"] != 0 {
+		t.Fatalf("legacy project was not read compatibly: %#v", projects[0])
+	}
+}
+
 func TestRemoveRecentProject(t *testing.T) {
 	session := testSession(t)
 	base := t.TempDir()
@@ -136,6 +171,29 @@ func TestOpenExistingReportLoadsAnalysisAndAskWorks(t *testing.T) {
 	}
 	if answer.Answer == "" || answer.Mode != "deterministic" {
 		t.Fatalf("unexpected ask response: %#v", answer)
+	}
+}
+
+func TestOpenExistingReportPreservesRecentGitHubMetadata(t *testing.T) {
+	session := testSession(t)
+	root := t.TempDir()
+	writeAnalysisJSON(t, root, &models.Analysis{RepoName: "repo", RepoPath: root})
+	if err := writeRecentProjects(session.recentProjectsPath, []RecentProject{{
+		RepoName:       "repo",
+		RepoPath:       root,
+		SourceType:     sourceTypeGitHub,
+		GitHubURL:      "https://github.com/owner/repo.git",
+		LocalCachePath: root,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := session.OpenExistingReport(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.SourceType != sourceTypeGitHub || response.GitHubURL != "https://github.com/owner/repo.git" || response.LocalCachePath != root {
+		t.Fatalf("GitHub metadata was not preserved: %#v", response)
 	}
 }
 

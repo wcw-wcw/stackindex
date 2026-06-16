@@ -67,18 +67,63 @@ See [DESIGN.md](./DESIGN.md). The desktop UI should stay close to the Bubble Tea
 Implemented:
 
 - enter or browse for a local project path
+- paste a public GitHub repository URL and analyze a local cached clone
 - optional deterministic audit
 - optional local Ollama-backed AI summary using StackMap's existing fallback behavior
 - analyze through `internal/app.Analyze`
 - export reports through `internal/app.ExportReports`
 - show a clickable report workspace with overview, audit, context, routes, tests, AI notes, and report paths
+- recent projects and previous report loading
+- local Ollama model discovery/dropdown
 
 Intentionally not implemented yet:
 
 - full report viewer
 - chat Q&A UI
-- GitHub cloning
-- recent projects
-- model picker/settings
+- private GitHub repository auth
+- GitHub tokens or GitHub API usage
+- branch selection
+- GitHub cache refresh/pull from the UI
 - packaging
 - cloud APIs or embeddings
+
+## GitHub URL Support
+
+The GitHub source mode is a local-first MVP for public repositories only. StackMap accepts these URL forms:
+
+```text
+https://github.com/owner/repo
+https://github.com/owner/repo.git
+```
+
+The desktop backend normalizes either form to `https://github.com/owner/repo.git`, clones with the local `git` binary, and then analyzes the local clone through the same `internal/app.Analyze` flow used for local folders. Reports are written inside the cached clone at:
+
+```text
+<cached repo>/.stackmap/analysis.json
+<cached repo>/.stackmap/reports/repo-report.md
+```
+
+Repositories are cached under the OS user cache directory:
+
+```text
+os.UserCacheDir()/StackMap/repos/github.com/<owner>/<repo>
+```
+
+On macOS this is typically:
+
+```text
+~/Library/Caches/StackMap/repos/github.com/<owner>/<repo>
+```
+
+To force a fresh clone, quit the app if it is running and remove the cached repository folder manually. Refresh/pull is intentionally not exposed in this MVP.
+
+Current GitHub limitations:
+
+- public HTTPS GitHub repositories only
+- no SSH URLs
+- no credentials embedded in URLs
+- no private repo auth
+- no GitHub tokens
+- no GitHub API calls
+- no branch selector
+- no report comparison

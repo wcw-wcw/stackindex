@@ -5,9 +5,20 @@ export type AnalyzeRequest = {
   model: string;
 };
 
+export type GitHubAnalyzeRequest = {
+  url: string;
+  runAudit: boolean;
+  useAI: boolean;
+  model: string;
+  refresh: boolean;
+};
+
 export type AnalyzeResponse = {
   repoName: string;
   repoPath: string;
+  sourceType?: string;
+  githubUrl?: string;
+  localCachePath?: string;
   generatedAt: string;
   files: number;
   routes: number;
@@ -37,6 +48,9 @@ export type AnalyzeResponse = {
 export type RecentProject = {
   repoName: string;
   repoPath: string;
+  sourceType?: string;
+  githubUrl?: string;
+  localCachePath?: string;
   lastAnalyzed: string;
   files: number;
   routes: number;
@@ -47,6 +61,18 @@ export type RecentProject = {
   aiModel?: string;
   jsonReportPath: string;
   mdReportPath: string;
+};
+
+export type OllamaModelView = {
+  name: string;
+  modifiedAt?: string;
+  size?: number;
+};
+
+export type OllamaModelsResponse = {
+  available: boolean;
+  models: OllamaModelView[];
+  message?: string;
 };
 
 export type ContextView = {
@@ -144,11 +170,13 @@ declare global {
     go?: {
       main?: {
         App?: {
+          AnalyzeGitHubRepo(request: GitHubAnalyzeRequest): Promise<AnalyzeResponse>;
           AnalyzeProject(request: AnalyzeRequest): Promise<AnalyzeResponse>;
           AskQuestion(request: AskRequest): Promise<AskResponse>;
           BrowseFolder(): Promise<string>;
           ClearRecentProjects(): Promise<void>;
           GetRecentProjects(): Promise<RecentProject[]>;
+          ListOllamaModels(): Promise<OllamaModelsResponse>;
           OpenExistingReport(path: string): Promise<AnalyzeResponse>;
           RemoveRecentProject(path: string): Promise<void>;
         };
@@ -169,12 +197,20 @@ export function analyzeProject(request: AnalyzeRequest) {
   return backend().AnalyzeProject(request);
 }
 
+export function analyzeGitHubRepo(request: GitHubAnalyzeRequest) {
+  return backend().AnalyzeGitHubRepo(request);
+}
+
 export function openExistingReport(path: string) {
   return backend().OpenExistingReport(path);
 }
 
 export function getRecentProjects() {
   return backend().GetRecentProjects();
+}
+
+export function listOllamaModels() {
+  return backend().ListOllamaModels();
 }
 
 export function removeRecentProject(path: string) {

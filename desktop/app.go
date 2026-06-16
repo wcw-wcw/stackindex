@@ -34,6 +34,10 @@ func (a *App) AnalyzeProject(request backend.AnalyzeRequest) (*backend.AnalyzeRe
 	return a.session.AnalyzeProject(context.Background(), request)
 }
 
+func (a *App) AnalyzeGitHubRepo(request backend.GitHubAnalyzeRequest) (*backend.AnalyzeResponse, error) {
+	return a.session.AnalyzeGitHubRepo(context.Background(), request)
+}
+
 func (a *App) OpenExistingReport(path string) (*backend.AnalyzeResponse, error) {
 	return a.session.OpenExistingReport(path)
 }
@@ -52,4 +56,8 @@ func (a *App) ClearRecentProjects() error {
 
 func (a *App) AskQuestion(request backend.AskRequest) (*backend.AskResponse, error) {
 	return a.session.AskQuestion(context.Background(), request)
+}
+
+func (a *App) ListOllamaModels() (*backend.OllamaModelsResponse, error) {
+	return a.session.ListOllamaModels(context.Background())
 }

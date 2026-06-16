@@ -1,8 +1,12 @@
 import { FormEvent } from 'react';
-import { RecentProject } from '../wails';
+import { OllamaModelsResponse, RecentProject } from '../wails';
+
+type SourceMode = 'local' | 'github';
 
 type LandingPageProps = {
+  sourceMode: SourceMode;
   path: string;
+  githubUrl: string;
   runAudit: boolean;
   useAI: boolean;
   model: string;
@@ -10,20 +14,27 @@ type LandingPageProps = {
   error: string;
   isRunning: boolean;
   recentProjects: RecentProject[];
+  ollamaModels: OllamaModelsResponse;
+  isLoadingModels: boolean;
+  onSourceModeChange: (value: SourceMode) => void;
   onPathChange: (value: string) => void;
+  onGitHubUrlChange: (value: string) => void;
   onRunAuditChange: (value: boolean) => void;
   onUseAIChange: (value: boolean) => void;
   onModelChange: (value: string) => void;
+  onRefreshModels: () => void;
   onBrowse: () => void;
   onAnalyze: (event: FormEvent) => void;
   onOpenReport: (path: string) => void;
-  onAnalyzeAgain: (path: string) => void;
+  onAnalyzeAgain: (project: RecentProject) => void;
   onRemoveRecent: (path: string) => void;
   onClearRecent: () => void;
 };
 
 export function LandingPage({
+  sourceMode,
   path,
+  githubUrl,
   runAudit,
   useAI,
   model,
@@ -31,10 +42,15 @@ export function LandingPage({
   error,
   isRunning,
   recentProjects,
+  ollamaModels,
+  isLoadingModels,
+  onSourceModeChange,
   onPathChange,
+  onGitHubUrlChange,
   onRunAuditChange,
   onUseAIChange,
   onModelChange,
+  onRefreshModels,
   onBrowse,
   onAnalyze,
   onOpenReport,
@@ -49,12 +65,37 @@ export function LandingPage({
       <p className="intro">Analyze a project on this machine and export the familiar `.stackmap` JSON and Markdown reports.</p>
 
       <form onSubmit={onAnalyze}>
-        <label htmlFor="path">Project path</label>
-        <div className="path-row">
-          <input id="path" value={path} onChange={(event) => onPathChange(event.target.value)} placeholder="/path/to/project" />
-          <button type="button" className="secondary" onClick={onBrowse}>Browse folder</button>
+        <label>Source</label>
+        <div className="source-tabs" role="tablist" aria-label="Project source">
+          <button type="button" className={sourceMode === 'local' ? 'active' : ''} onClick={() => onSourceModeChange('local')} disabled={isRunning}>
+            Local
+          </button>
+          <button type="button" className={sourceMode === 'github' ? 'active' : ''} onClick={() => onSourceModeChange('github')} disabled={isRunning}>
+            GitHub
+          </button>
         </div>
-        <p className="selected">Selected: <code>{path || 'No path selected'}</code></p>
+
+        {sourceMode === 'local' ? (
+          <>
+            <div className="path-row">
+              <input id="path" value={path} onChange={(event) => onPathChange(event.target.value)} placeholder="/path/to/project" disabled={isRunning} />
+              <button type="button" className="secondary" onClick={onBrowse} disabled={isRunning}>Browse folder</button>
+            </div>
+            <p className="selected">Selected: <code>{path || 'No path selected'}</code></p>
+          </>
+        ) : (
+          <div className="github-source">
+            <label htmlFor="github-url">GitHub URL</label>
+            <input
+              id="github-url"
+              value={githubUrl}
+              onChange={(event) => onGitHubUrlChange(event.target.value)}
+              placeholder="https://github.com/owner/repo"
+              disabled={isRunning}
+            />
+            <p className="selected">Public GitHub repositories only. Cloned locally into the StackMap cache.</p>
+          </div>
+        )}
 
         <div className="toggles">
           <label className="toggle">
@@ -67,10 +108,26 @@ export function LandingPage({
           </label>
         </div>
 
-        <label htmlFor="model">Model</label>
-        <input id="model" value={model} onChange={(event) => onModelChange(event.target.value)} placeholder="Empty uses the existing default local model chain" />
+        <div className={`model-picker ${useAI ? '' : 'is-disabled'}`}>
+          <div className="model-picker-header">
+            <label htmlFor="model">Model</label>
+            <button type="button" className="secondary compact" onClick={onRefreshModels} disabled={!useAI || isRunning || isLoadingModels}>
+              {isLoadingModels ? 'Refreshing...' : 'Refresh models'}
+            </button>
+          </div>
+          <select id="model" value={model} onChange={(event) => onModelChange(event.target.value)} disabled={!useAI || isRunning}>
+            <option value="">Default local chain</option>
+            {selectedModelMissing(model, ollamaModels) && <option value={model}>{model}</option>}
+            {ollamaModels.models.map((item) => (
+              <option key={item.name} value={item.name}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+          <p className="model-status">{modelStatusText(useAI, ollamaModels, isLoadingModels)}</p>
+        </div>
 
-        <button type="submit" disabled={isRunning}>{isRunning ? 'Analyzing...' : 'Analyze'}</button>
+        <button type="submit" disabled={isRunning}>{isRunning ? 'Analyzing...' : sourceMode === 'github' ? 'Analyze GitHub Repo' : 'Analyze'}</button>
       </form>
 
       <p className="status">{status}</p>
@@ -98,7 +155,7 @@ function RecentProjects({
   projects: RecentProject[];
   isRunning: boolean;
   onOpenReport: (path: string) => void;
-  onAnalyzeAgain: (path: string) => void;
+  onAnalyzeAgain: (project: RecentProject) => void;
   onRemoveRecent: (path: string) => void;
   onClearRecent: () => void;
 }) {
@@ -123,6 +180,7 @@ function RecentProjects({
             <div className="recent-row" key={project.repoPath}>
               <div className="recent-main">
                 <strong>{project.repoName || project.repoPath}</strong>
+                {project.sourceType === 'github' && project.githubUrl && <span className="source-tag">github {project.githubUrl}</span>}
                 <code>{project.repoPath}</code>
                 <div className="recent-meta">
                   <span>{project.lastAnalyzed || 'unknown time'}</span>
@@ -138,7 +196,7 @@ function RecentProjects({
                 <button type="button" onClick={() => onOpenReport(project.repoPath)} disabled={isRunning}>
                   Open Report
                 </button>
-                <button type="button" className="secondary" onClick={() => onAnalyzeAgain(project.repoPath)} disabled={isRunning}>
+                <button type="button" className="secondary" onClick={() => onAnalyzeAgain(project)} disabled={isRunning}>
                   Analyze Again
                 </button>
                 <button type="button" className="secondary" onClick={() => onRemoveRecent(project.repoPath)} disabled={isRunning}>
@@ -162,4 +220,27 @@ function aiText(project: RecentProject) {
     return `${project.aiStatus} ${project.aiModel}`;
   }
   return project.aiStatus || 'not requested';
+}
+
+function selectedModelMissing(model: string, ollamaModels: OllamaModelsResponse) {
+  if (!model) {
+    return false;
+  }
+  return !ollamaModels.models.some((item) => item.name === model);
+}
+
+function modelStatusText(useAI: boolean, ollamaModels: OllamaModelsResponse, isLoadingModels: boolean) {
+  if (!useAI) {
+    return 'AI disabled';
+  }
+  if (isLoadingModels) {
+    return 'Checking local Ollama models...';
+  }
+  if (ollamaModels.message) {
+    return ollamaModels.message;
+  }
+  if (ollamaModels.available) {
+    return 'Ollama models loaded.';
+  }
+  return 'Ollama unavailable - default analysis still works without AI.';
 }
