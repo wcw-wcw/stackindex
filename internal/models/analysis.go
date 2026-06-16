@@ -202,4 +202,28 @@ type Analysis struct {
 	Findings     []Finding          `json:"findings"`
 	AI           *AISummary         `json:"ai,omitempty"`
 	Audit        *AuditResult       `json:"audit,omitempty"`
+	Changes      *ChangeSummary     `json:"changes,omitempty"`
+}
+
+type ChangeSummary struct {
+	HasPrevious             bool      `json:"hasPrevious"`
+	Message                 string    `json:"message,omitempty"`
+	PreviousSnapshot        string    `json:"previousSnapshot,omitempty"`
+	CurrentSnapshot         string    `json:"currentSnapshot,omitempty"`
+	GeneratedAt             time.Time `json:"generatedAt,omitempty"`
+	SummaryBullets          []string  `json:"summaryBullets,omitempty"`
+	AddedRoutes             []string  `json:"addedRoutes,omitempty"`
+	RemovedRoutes           []string  `json:"removedRoutes,omitempty"`
+	AddedEnvVars            []string  `json:"addedEnvVars,omitempty"`
+	RemovedEnvVars          []string  `json:"removedEnvVars,omitempty"`
+	AddedFindings           []string  `json:"addedFindings,omitempty"`
+	ResolvedFindings        []string  `json:"resolvedFindings,omitempty"`
+	AuditStatusBefore       string    `json:"auditStatusBefore,omitempty"`
+	AuditStatusAfter        string    `json:"auditStatusAfter,omitempty"`
+	StackChanges            []string  `json:"stackChanges,omitempty"`
+	FrameworkChanges        []string  `json:"frameworkChanges,omitempty"`
+	DatabaseChanges         []string  `json:"databaseChanges,omitempty"`
+	TestSignalChanges       []string  `json:"testSignalChanges,omitempty"`
+	DeploymentSignalChanges []string  `json:"deploymentSignalChanges,omitempty"`
+	KeyFileChanges          []string  `json:"keyFileChanges,omitempty"`
 }

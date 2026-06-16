@@ -755,6 +755,14 @@ li {
   padding-top: 14px;
 }
 
+.changes-section {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+}
+
 .history-header {
   align-items: baseline;
   display: flex;
@@ -807,6 +815,40 @@ li {
 
 .snapshot-actions {
   margin: 0;
+}
+
+.change-meta,
+.change-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.change-meta {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.change-bullets {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.change-lists {
+  display: grid;
+  gap: 6px;
+}
+
+.change-list span {
+  color: var(--muted);
+  min-width: 130px;
+}
+
+.change-list code {
+  overflow-wrap: anywhere;
 }
 
 .ask-panel {

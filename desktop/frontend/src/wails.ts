@@ -169,6 +169,7 @@ export type ReportsView = {
   markdownPath: string;
   directory: string;
   history: SnapshotView[];
+  changes: ChangeView;
 };
 
 export type SnapshotView = {
@@ -179,6 +180,22 @@ export type SnapshotView = {
   auditStatus: string;
   aiStatus: string;
   generatedAt?: string;
+};
+
+export type ChangeView = {
+  hasPrevious: boolean;
+  message?: string;
+  previousSnapshot?: string;
+  currentGenerated?: string;
+  summaryBullets: string[];
+  addedRoutes: string[];
+  removedRoutes: string[];
+  addedEnvVars: string[];
+  removedEnvVars: string[];
+  addedFindings: string[];
+  resolvedFindings: string[];
+  auditStatusBefore?: string;
+  auditStatusAfter?: string;
 };
 
 export type AskRequest = {

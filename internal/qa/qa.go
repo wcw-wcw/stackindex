@@ -51,6 +51,7 @@ const (
 	questionTests       questionType = "tests"
 	questionEnvironment questionType = "environment"
 	questionConnection  questionType = "connection"
+	questionChanges     questionType = "changes"
 	questionUnsupported questionType = "unsupported"
 )
 
@@ -93,6 +94,8 @@ func AnswerDeterministically(analysis *models.Analysis, question string) *models
 		return answerEnvironment(analysis, question)
 	case questionConnection:
 		return answerConnection(analysis, question)
+	case questionChanges:
+		return answerChanges(analysis, question)
 	default:
 		return unsupported(question, "")
 	}
@@ -101,6 +104,8 @@ func AnswerDeterministically(analysis *models.Analysis, question string) *models
 func classify(question string) questionType {
 	q := normalize(question)
 	switch {
+	case containsAny(q, "what changed since last report", "what changed since the last report", "what changed since last analysis", "what changed since the last analysis", "changed since last", "changes since previous", "changes since last", "new routes were added", "what new routes were added", "env vars changed", "environment variables changed"):
+		return questionChanges
 	case containsAny(q, "frontend connected to the backend", "frontend connect", "connect to the backend", "front end connected", "client connected", "frontend connect to the backend", "frontend talk to the backend", "client talk to the api", "where is the api client", "api client", "frontend call api", "frontend calls api", "where does the frontend call api", "where are api calls made"):
 		return questionConnection
 	case containsAny(q, "what is this project", "what is this repo for", "what is this project for", "summarize this project", "what does this app do"):
@@ -494,6 +499,62 @@ func answerConnection(a *models.Analysis, question string) *models.QAResult {
 		addEvidence(&evidence, "graph", file.Path, file.WhyItMatters, file.Path)
 	}
 	return result(question, strings.Join(fragments, " "), confidenceForCount(len(evidence)), evidence)
+}
+
+func answerChanges(a *models.Analysis, question string) *models.QAResult {
+	changes := a.Changes
+	if changes == nil || !changes.HasPrevious {
+		message := "StackMap needs at least two snapshots before it can answer change questions."
+		if changes != nil && changes.Message != "" {
+			message = changes.Message
+		}
+		return result(question, message, ConfidenceMedium, nil)
+	}
+	var fragments []string
+	if len(changes.SummaryBullets) > 0 {
+		fragments = append(fragments, strings.Join(changes.SummaryBullets, " "))
+	}
+	if len(changes.AddedRoutes) > 0 {
+		fragments = append(fragments, "New routes: "+strings.Join(capStrings(changes.AddedRoutes, 6), ", ")+".")
+	}
+	if len(changes.RemovedRoutes) > 0 {
+		fragments = append(fragments, "Removed routes: "+strings.Join(capStrings(changes.RemovedRoutes, 6), ", ")+".")
+	}
+	if len(changes.AddedEnvVars) > 0 || len(changes.RemovedEnvVars) > 0 {
+		fragments = append(fragments, fmt.Sprintf("Environment variables changed: added %s; removed %s.", joinOrNone(changes.AddedEnvVars), joinOrNone(changes.RemovedEnvVars)))
+	}
+	if changes.AuditStatusBefore != "" && changes.AuditStatusAfter != "" && changes.AuditStatusBefore != changes.AuditStatusAfter {
+		fragments = append(fragments, fmt.Sprintf("Audit status changed from %s to %s.", changes.AuditStatusBefore, changes.AuditStatusAfter))
+	}
+	if len(changes.AddedFindings) > 0 || len(changes.ResolvedFindings) > 0 {
+		fragments = append(fragments, fmt.Sprintf("Findings changed: %d added, %d resolved.", len(changes.AddedFindings), len(changes.ResolvedFindings)))
+	}
+	if len(fragments) == 0 {
+		fragments = append(fragments, "No deterministic changes were detected since the previous snapshot.")
+	}
+	evidence := []models.QAEvidence{}
+	addEvidence(&evidence, "change", "Previous snapshot", changes.PreviousSnapshot, "")
+	addEvidence(&evidence, "audit", "Audit status before", changes.AuditStatusBefore, "")
+	addEvidence(&evidence, "audit", "Audit status after", changes.AuditStatusAfter, "")
+	for _, route := range capStrings(changes.AddedRoutes, 6) {
+		addEvidence(&evidence, "route", "Added route", route, "")
+	}
+	for _, route := range capStrings(changes.RemovedRoutes, 6) {
+		addEvidence(&evidence, "route", "Removed route", route, "")
+	}
+	for _, name := range capStrings(changes.AddedEnvVars, 6) {
+		addEvidence(&evidence, "env", "Added env var", name, "")
+	}
+	for _, name := range capStrings(changes.RemovedEnvVars, 6) {
+		addEvidence(&evidence, "env", "Removed env var", name, "")
+	}
+	for _, finding := range capStrings(changes.AddedFindings, 4) {
+		addEvidence(&evidence, "finding", "Added finding", finding, "")
+	}
+	for _, finding := range capStrings(changes.ResolvedFindings, 4) {
+		addEvidence(&evidence, "finding", "Resolved finding", finding, "")
+	}
+	return result(question, strings.Join(fragments, " "), ConfidenceHigh, evidence)
 }
 
 func unsupported(question, detail string) *models.QAResult {
@@ -1711,6 +1772,13 @@ func envVarFiles(env models.EnvAnalysis, name string) string {
 		}
 	}
 	return ""
+}
+
+func joinOrNone(values []string) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	return strings.Join(capStrings(values, 6), ", ")
 }
 
 func confidenceOr(value, fallback string) string {

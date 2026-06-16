@@ -225,6 +225,34 @@ func TestDeterministicAISummaryLabelsViteReactWithoutNext(t *testing.T) {
 	}
 }
 
+func TestMarkdownRendersChangeSummary(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Changes = &models.ChangeSummary{
+		HasPrevious:       true,
+		PreviousSnapshot:  "20260616-120000",
+		GeneratedAt:       time.Date(2026, 6, 16, 13, 0, 0, 0, time.UTC),
+		SummaryBullets:    []string{"Routes changed: 1 added, 0 removed."},
+		AddedRoutes:       []string{"GET /api/new"},
+		AddedEnvVars:      []string{"NEW_SECRET"},
+		AuditStatusBefore: "failed",
+		AuditStatusAfter:  "passed",
+	}
+
+	out := Markdown(analysis)
+	for _, want := range []string{
+		"## Changes Since Previous Snapshot",
+		"Previous snapshot: `20260616-120000`",
+		"Audit status: `failed` -> `passed`",
+		"Routes changed: 1 added, 0 removed.",
+		"- Added routes: `GET /api/new`",
+		"- Added env vars: `NEW_SECRET`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestStructuredAISummaryTakesPrecedenceOverDeterministicFallback(t *testing.T) {
 	analysis := richAnalysis()
 	analysis.AI = &models.AISummary{

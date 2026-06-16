@@ -19,6 +19,9 @@ func WriteMarkdown(root string, analysis *models.Analysis) error {
 }
 
 func ExportAll(root string, analysis *models.Analysis) error {
+	if err := AttachChangeSummary(root, analysis); err != nil {
+		return err
+	}
 	if err := WriteJSON(root, analysis); err != nil {
 		return err
 	}
@@ -39,6 +42,8 @@ func Markdown(a *models.Analysis) string {
 	writeAuditResult(&b, a)
 
 	writeAIProjectSummary(&b, a)
+
+	writeChangeSummary(&b, a)
 
 	fmt.Fprintf(&b, "## Top Recommended Fixes\n\n")
 	writeTopFixes(&b, a)
@@ -571,6 +576,38 @@ func writeNameList(b *strings.Builder, label string, names []string) {
 		return
 	}
 	fmt.Fprintf(b, "- %s: `%s`\n", label, strings.Join(names, "`, `"))
+}
+
+func writeChangeSummary(b *strings.Builder, a *models.Analysis) {
+	fmt.Fprintf(b, "## Changes Since Previous Snapshot\n\n")
+	if a.Changes == nil || !a.Changes.HasPrevious {
+		message := noPreviousSnapshotMessage
+		if a.Changes != nil && a.Changes.Message != "" {
+			message = a.Changes.Message
+		}
+		fmt.Fprintf(b, "%s\n\n", message)
+		return
+	}
+	fmt.Fprintf(b, "- Previous snapshot: `%s`\n", a.Changes.PreviousSnapshot)
+	fmt.Fprintf(b, "- Current generated: `%s`\n", a.Changes.GeneratedAt.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(b, "- Audit status: `%s` -> `%s`\n\n", a.Changes.AuditStatusBefore, a.Changes.AuditStatusAfter)
+	for _, bullet := range a.Changes.SummaryBullets {
+		fmt.Fprintf(b, "- %s\n", bullet)
+	}
+	fmt.Fprintln(b)
+	writeNameList(b, "Added routes", a.Changes.AddedRoutes)
+	writeNameList(b, "Removed routes", a.Changes.RemovedRoutes)
+	writeNameList(b, "Added env vars", a.Changes.AddedEnvVars)
+	writeNameList(b, "Removed env vars", a.Changes.RemovedEnvVars)
+	writeNameList(b, "Added findings", a.Changes.AddedFindings)
+	writeNameList(b, "Resolved findings", a.Changes.ResolvedFindings)
+	writeNameList(b, "Stack changes", a.Changes.StackChanges)
+	writeNameList(b, "Framework changes", a.Changes.FrameworkChanges)
+	writeNameList(b, "Database changes", a.Changes.DatabaseChanges)
+	writeNameList(b, "Test signal changes", a.Changes.TestSignalChanges)
+	writeNameList(b, "Deployment signal changes", a.Changes.DeploymentSignalChanges)
+	writeNameList(b, "Key file changes", a.Changes.KeyFileChanges)
+	fmt.Fprintln(b)
 }
 
 func present(ok bool) string {

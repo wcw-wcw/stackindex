@@ -84,6 +84,8 @@ func TestQuestionClassificationForExpandedCategories(t *testing.T) {
 		"Where does the frontend call API?":  questionConnection,
 		"Where are env vars used?":           questionEnvironment,
 		"What looks deployment-sensitive?":   questionDeployment,
+		"What changed since last analysis?":  questionChanges,
+		"What env vars changed?":             questionChanges,
 	}
 	for question, want := range cases {
 		t.Run(question, func(t *testing.T) {
@@ -91,6 +93,41 @@ func TestQuestionClassificationForExpandedCategories(t *testing.T) {
 				t.Fatalf("classify(%q) = %q, want %q", question, got, want)
 			}
 		})
+	}
+}
+
+func TestChangesQuestionUsesChangeSummary(t *testing.T) {
+	analysis := fixtureAnalysis()
+	analysis.Changes = &models.ChangeSummary{
+		HasPrevious:       true,
+		PreviousSnapshot:  "20260616-120000",
+		SummaryBullets:    []string{"Routes changed: 1 added, 1 removed."},
+		AddedRoutes:       []string{"GET /api/new"},
+		RemovedRoutes:     []string{"POST /api/old"},
+		AddedEnvVars:      []string{"NEW_SECRET"},
+		RemovedEnvVars:    []string{"OLD_SECRET"},
+		AddedFindings:     []string{"medium | env | Missing NEW_SECRET | .env.example"},
+		ResolvedFindings:  []string{"high | route | Old route missing auth | old.go"},
+		AuditStatusBefore: "failed",
+		AuditStatusAfter:  "passed",
+	}
+
+	result := AnswerDeterministically(analysis, "What changed since last report?")
+	assertAnswerContains(t, result, "Routes changed")
+	assertAnswerContains(t, result, "GET /api/new")
+	assertAnswerContains(t, result, "NEW_SECRET")
+	assertAnswerContains(t, result, "Audit status changed from failed to passed")
+	assertEvidenceKind(t, result, "change")
+	assertEvidenceKind(t, result, "route")
+	assertEvidenceKind(t, result, "env")
+	assertEvidenceKind(t, result, "finding")
+}
+
+func TestChangesQuestionWithoutSummaryExplainsSnapshotNeed(t *testing.T) {
+	result := AnswerDeterministically(fixtureAnalysis(), "What new routes were added?")
+	assertAnswerContains(t, result, "at least two snapshots")
+	if result.Confidence != ConfidenceMedium {
+		t.Fatalf("confidence = %q, want medium", result.Confidence)
 	}
 }
 

@@ -126,6 +126,7 @@ type ReportsView struct {
 	MarkdownPath string         `json:"markdownPath"`
 	Directory    string         `json:"directory"`
 	History      []SnapshotView `json:"history"`
+	Changes      ChangeView     `json:"changes"`
 }
 
 type SnapshotView struct {
@@ -136,6 +137,22 @@ type SnapshotView struct {
 	AuditStatus  string `json:"auditStatus"`
 	AIStatus     string `json:"aiStatus"`
 	GeneratedAt  string `json:"generatedAt,omitempty"`
+}
+
+type ChangeView struct {
+	HasPrevious       bool     `json:"hasPrevious"`
+	Message           string   `json:"message,omitempty"`
+	PreviousSnapshot  string   `json:"previousSnapshot,omitempty"`
+	CurrentGenerated  string   `json:"currentGenerated,omitempty"`
+	SummaryBullets    []string `json:"summaryBullets"`
+	AddedRoutes       []string `json:"addedRoutes"`
+	RemovedRoutes     []string `json:"removedRoutes"`
+	AddedEnvVars      []string `json:"addedEnvVars"`
+	RemovedEnvVars    []string `json:"removedEnvVars"`
+	AddedFindings     []string `json:"addedFindings"`
+	ResolvedFindings  []string `json:"resolvedFindings"`
+	AuditStatusBefore string   `json:"auditStatusBefore,omitempty"`
+	AuditStatusAfter  string   `json:"auditStatusAfter,omitempty"`
 }
 
 type AskRequest struct {
@@ -343,6 +360,7 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 		MarkdownPath: response.MDReportPath,
 		Directory:    filepath.Join(root, ".stackmap"),
 		History:      buildSnapshotViews(root),
+		Changes:      buildChangeView(analysis.Changes),
 	}
 	if request.RunAudit {
 		response.AuditStatus = "not run"
@@ -367,6 +385,36 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 		}
 	}
 	return response
+}
+
+func buildChangeView(changes *models.ChangeSummary) ChangeView {
+	if changes == nil {
+		return ChangeView{
+			Message:          "No previous snapshot yet. Run StackMap again after another analysis to see changes.",
+			SummaryBullets:   []string{},
+			AddedRoutes:      []string{},
+			RemovedRoutes:    []string{},
+			AddedEnvVars:     []string{},
+			RemovedEnvVars:   []string{},
+			AddedFindings:    []string{},
+			ResolvedFindings: []string{},
+		}
+	}
+	return ChangeView{
+		HasPrevious:       changes.HasPrevious,
+		Message:           changes.Message,
+		PreviousSnapshot:  changes.PreviousSnapshot,
+		CurrentGenerated:  formatAnalysisTime(changes.GeneratedAt),
+		SummaryBullets:    copyStrings(changes.SummaryBullets),
+		AddedRoutes:       copyStrings(changes.AddedRoutes),
+		RemovedRoutes:     copyStrings(changes.RemovedRoutes),
+		AddedEnvVars:      copyStrings(changes.AddedEnvVars),
+		RemovedEnvVars:    copyStrings(changes.RemovedEnvVars),
+		AddedFindings:     copyStrings(changes.AddedFindings),
+		ResolvedFindings:  copyStrings(changes.ResolvedFindings),
+		AuditStatusBefore: changes.AuditStatusBefore,
+		AuditStatusAfter:  changes.AuditStatusAfter,
+	}
 }
 
 func buildSnapshotViews(root string) []SnapshotView {

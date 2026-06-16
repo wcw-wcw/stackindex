@@ -450,6 +450,7 @@ function Reports({ result }: { result: AnalyzeResponse }) {
       {result.sourceType === 'github' && (
         <p className="selected">Desktop GitHub repositories are analyzed from the local cached clone, so the copied CLI command uses that cache path.</p>
       )}
+      <ChangesPanel changes={result.reports.changes} />
       <div className="history-section">
         <div className="history-header">
           <h3>History</h3>
@@ -469,6 +470,53 @@ function Reports({ result }: { result: AnalyzeResponse }) {
       {actionError && <p className="error">{actionError}</p>}
       <p className="body-copy">Reports stay in `.stackmap` inside the analyzed project.</p>
     </>
+  );
+}
+
+function ChangesPanel({ changes }: { changes: AnalyzeResponse['reports']['changes'] }) {
+  if (!changes?.hasPrevious) {
+    return (
+      <div className="changes-section">
+        <div className="history-header">
+          <h3>Changes since previous snapshot</h3>
+        </div>
+        <p className="body-copy">{changes?.message || 'No previous snapshot yet. Run StackMap again after another analysis to see changes.'}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="changes-section">
+      <div className="history-header">
+        <h3>Changes since previous snapshot</h3>
+        <span>{changes.previousSnapshot}</span>
+      </div>
+      <div className="change-meta">
+        <span>current: {changes.currentGenerated || 'unknown'}</span>
+        <span>audit: {changes.auditStatusBefore || 'unknown'} -&gt; {changes.auditStatusAfter || 'unknown'}</span>
+      </div>
+      <ul className="change-bullets">
+        {(changes.summaryBullets.length > 0 ? changes.summaryBullets : ['No deterministic changes were detected since the previous snapshot.']).map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <div className="change-lists">
+        <ChangeList label="Added routes" values={changes.addedRoutes} />
+        <ChangeList label="Removed routes" values={changes.removedRoutes} />
+        <ChangeList label="Added env vars" values={changes.addedEnvVars} />
+        <ChangeList label="Removed env vars" values={changes.removedEnvVars} />
+        <ChangeList label="Added findings" values={changes.addedFindings} />
+        <ChangeList label="Resolved findings" values={changes.resolvedFindings} />
+      </div>
+    </div>
+  );
+}
+
+function ChangeList({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div className="change-list">
+      <span>{label}</span>
+      <code>{values.length > 0 ? values.join(', ') : 'none'}</code>
+    </div>
   );
 }
 

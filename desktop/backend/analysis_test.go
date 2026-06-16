@@ -87,6 +87,35 @@ func TestBuildAnalyzeResponseDefaultStatuses(t *testing.T) {
 	}
 }
 
+func TestBuildAnalyzeResponseIncludesChangeSummary(t *testing.T) {
+	analysis := &models.Analysis{
+		RepoName: "example",
+		RepoPath: "example",
+		Changes: &models.ChangeSummary{
+			HasPrevious:       true,
+			PreviousSnapshot:  "20260616-120000",
+			SummaryBullets:    []string{"Routes changed: 1 added, 0 removed."},
+			AddedRoutes:       []string{"GET /api/new"},
+			AddedEnvVars:      []string{"NEW_SECRET"},
+			AddedFindings:     []string{"medium | env | Missing NEW_SECRET | .env.example"},
+			AuditStatusBefore: "failed",
+			AuditStatusAfter:  "passed",
+		},
+	}
+
+	response := BuildAnalyzeResponse("example", analysis, AnalyzeRequest{})
+	changes := response.Reports.Changes
+	if !changes.HasPrevious || changes.PreviousSnapshot != "20260616-120000" {
+		t.Fatalf("unexpected change metadata: %#v", changes)
+	}
+	if len(changes.AddedRoutes) != 1 || changes.AddedRoutes[0] != "GET /api/new" {
+		t.Fatalf("unexpected added routes: %#v", changes)
+	}
+	if changes.AuditStatusBefore != "failed" || changes.AuditStatusAfter != "passed" {
+		t.Fatalf("unexpected audit transition: %#v", changes)
+	}
+}
+
 func TestAskQuestionRequiresLoadedAnalysis(t *testing.T) {
 	session := NewSession()
 
