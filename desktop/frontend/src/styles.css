@@ -740,6 +740,13 @@ li {
   padding: 10px 12px;
 }
 
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
 .ask-panel {
   display: grid;
   gap: 16px;

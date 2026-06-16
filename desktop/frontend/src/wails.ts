@@ -87,6 +87,19 @@ export type DesktopPaths = {
   settingsPath: string;
 };
 
+export type PathActionRequest = {
+  path: string;
+};
+
+export type CLICommandRequest = {
+  repoPath: string;
+  sourceType?: string;
+  localCachePath?: string;
+  auditStatus?: string;
+  aiStatus?: string;
+  aiModel?: string;
+};
+
 export type ContextView = {
   purpose: string;
   confidence: string;
@@ -188,11 +201,16 @@ declare global {
           BrowseFolder(): Promise<string>;
           ClearGitHubCache(): Promise<void>;
           ClearRecentProjects(): Promise<void>;
+          GenerateCLICommand(request: CLICommandRequest): Promise<string>;
           GetDesktopPaths(): Promise<DesktopPaths>;
           GetDesktopSettings(): Promise<DesktopSettings>;
           GetRecentProjects(): Promise<RecentProject[]>;
           ListOllamaModels(): Promise<OllamaModelsResponse>;
+          OpenJSONReport(request: PathActionRequest): Promise<void>;
           OpenExistingReport(path: string): Promise<AnalyzeResponse>;
+          OpenMarkdownReport(request: PathActionRequest): Promise<void>;
+          RevealProjectFolder(request: PathActionRequest): Promise<void>;
+          RevealStackMapFolder(request: PathActionRequest): Promise<void>;
           RemoveRecentProject(path: string): Promise<void>;
           SaveDesktopSettings(settings: DesktopSettings): Promise<DesktopSettings>;
         };
@@ -251,6 +269,26 @@ export function saveDesktopSettings(settings: DesktopSettings) {
 
 export function getDesktopPaths() {
   return backend().GetDesktopPaths();
+}
+
+export function revealProjectFolder(request: PathActionRequest) {
+  return backend().RevealProjectFolder(request);
+}
+
+export function revealStackMapFolder(request: PathActionRequest) {
+  return backend().RevealStackMapFolder(request);
+}
+
+export function openMarkdownReport(request: PathActionRequest) {
+  return backend().OpenMarkdownReport(request);
+}
+
+export function openJSONReport(request: PathActionRequest) {
+  return backend().OpenJSONReport(request);
+}
+
+export function generateCLICommand(request: CLICommandRequest) {
+  return backend().GenerateCLICommand(request);
 }
 
 export function askQuestion(request: AskRequest) {

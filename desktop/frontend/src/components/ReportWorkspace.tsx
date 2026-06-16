@@ -1,5 +1,15 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { AnalyzeResponse, askQuestion, AskResponse, QAEvidenceView } from '../wails';
+import {
+  AnalyzeResponse,
+  askQuestion,
+  AskResponse,
+  generateCLICommand,
+  openJSONReport,
+  openMarkdownReport,
+  QAEvidenceView,
+  revealProjectFolder,
+  revealStackMapFolder,
+} from '../wails';
 import { MetricCard } from './MetricCard';
 import { ReportPath } from './ReportPath';
 import { Sidebar } from './Sidebar';
@@ -360,6 +370,44 @@ function AINotes({ result }: { result: AnalyzeResponse }) {
 }
 
 function Reports({ result }: { result: AnalyzeResponse }) {
+  const [actionStatus, setActionStatus] = useState('');
+  const [actionError, setActionError] = useState('');
+
+  async function runAction(label: string, action: () => Promise<void>) {
+    setActionError('');
+    setActionStatus(`${label}...`);
+    try {
+      await action();
+      setActionStatus(`${label} done.`);
+    } catch (err) {
+      setActionError(errorMessage(err));
+      setActionStatus(`${label} failed.`);
+    }
+  }
+
+  async function copyText(label: string, value: string) {
+    const text = value.trim();
+    if (!text) {
+      throw new Error(`${label} is not available.`);
+    }
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('Clipboard is not available in this desktop view.');
+    }
+    await navigator.clipboard.writeText(text);
+  }
+
+  async function copyCLICommand() {
+    const command = await generateCLICommand({
+      repoPath: result.repoPath,
+      sourceType: result.sourceType,
+      localCachePath: result.localCachePath,
+      auditStatus: result.auditStatus,
+      aiStatus: result.aiStatus,
+      aiModel: result.aiModel || result.ai.model,
+    });
+    await copyText('CLI command', command);
+  }
+
   return (
     <>
       <SectionHeader title="Reports" subtitle="Files written by the local StackMap analysis run." />
@@ -368,7 +416,38 @@ function Reports({ result }: { result: AnalyzeResponse }) {
         <ReportPath label="Markdown" path={result.reports.markdownPath} />
         <ReportPath label="Directory" path={result.reports.directory} />
       </div>
-      <p className="body-copy">Reports stay in `.stackmap` inside the analyzed project. The desktop app is only showing paths in this pass.</p>
+      <div className="report-actions">
+        <button type="button" className="secondary compact" onClick={() => runAction('Copy project path', () => copyText('Project path', result.repoPath))}>
+          Copy project path
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Copy JSON report path', () => copyText('JSON report path', result.reports.jsonPath))}>
+          Copy JSON report path
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Copy Markdown report path', () => copyText('Markdown report path', result.reports.markdownPath))}>
+          Copy Markdown report path
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Reveal project folder', () => revealProjectFolder({ path: result.repoPath }))}>
+          Reveal project folder
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Reveal .stackmap', () => revealStackMapFolder({ path: result.repoPath }))}>
+          Reveal .stackmap
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Open Markdown report', () => openMarkdownReport({ path: result.reports.markdownPath }))}>
+          Open Markdown report
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Open JSON report', () => openJSONReport({ path: result.reports.jsonPath }))}>
+          Open JSON report
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Copy CLI command', copyCLICommand)}>
+          Copy CLI command
+        </button>
+      </div>
+      {result.sourceType === 'github' && (
+        <p className="selected">Desktop GitHub repositories are analyzed from the local cached clone, so the copied CLI command uses that cache path.</p>
+      )}
+      {actionStatus && <p className="status">{actionStatus}</p>}
+      {actionError && <p className="error">{actionError}</p>}
+      <p className="body-copy">Reports stay in `.stackmap` inside the analyzed project.</p>
     </>
   );
 }

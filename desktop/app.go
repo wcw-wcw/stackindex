@@ -70,6 +70,26 @@ func (a *App) ClearGitHubCache() error {
 	return a.session.ClearGitHubCache()
 }
 
+func (a *App) RevealProjectFolder(request backend.PathActionRequest) error {
+	return a.session.RevealProjectFolder(context.Background(), request)
+}
+
+func (a *App) RevealStackMapFolder(request backend.PathActionRequest) error {
+	return a.session.RevealStackMapFolder(context.Background(), request)
+}
+
+func (a *App) OpenMarkdownReport(request backend.PathActionRequest) error {
+	return a.session.OpenMarkdownReport(context.Background(), request)
+}
+
+func (a *App) OpenJSONReport(request backend.PathActionRequest) error {
+	return a.session.OpenJSONReport(context.Background(), request)
+}
+
+func (a *App) GenerateCLICommand(request backend.CLICommandRequest) (string, error) {
+	return a.session.GenerateCLICommand(request)
+}
+
 func (a *App) AskQuestion(request backend.AskRequest) (*backend.AskResponse, error) {
 	return a.session.AskQuestion(context.Background(), request)
 }
