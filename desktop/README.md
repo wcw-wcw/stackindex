@@ -1,6 +1,6 @@
-# StackMap Desktop MVP
+# StackMap Desktop
 
-This folder is an isolated Wails v2 scaffold for the first desktop vertical slice.
+This folder is the Wails v2 desktop app for StackMap.
 
 It is a separate Go module so root CLI/TUI development and `go test ./...` are not affected by Wails dependencies. The desktop backend imports the parent module through:
 
@@ -44,10 +44,10 @@ GOCACHE=/Users/will/Workspace/stackmap/.gocache /Users/will/go/bin/wails build -
 GOCACHE=/Users/will/Workspace/stackmap/.gocache go build -buildvcs=false -tags desktop,wv2runtime.download,production -ldflags "-w -s" -o build/bin/StackMap
 ```
 
-As of the desktop MVP stabilization pass, the normal unsandboxed build succeeds:
+Codex's managed sandbox may still fail native Wails builds because of system cache or macOS build restrictions. Manual validation command:
 
 ```sh
-/Users/will/go/bin/wails build
+cd desktop && /Users/will/go/bin/wails build
 ```
 
 The only compiler output from the direct `go build` path was a Wails macOS shim deprecation warning for `setShowsBaselineSeparator:` on recent macOS SDKs.
@@ -72,18 +72,23 @@ Implemented:
 - optional local Ollama-backed AI summary using StackMap's existing fallback behavior
 - analyze through `internal/app.Analyze`
 - export reports through `internal/app.ExportReports`
-- show a clickable report workspace with overview, audit, context, routes, tests, AI notes, and report paths
-- recent projects and previous report loading
+- show a clickable report workspace with overview, audit, context, routes, tests, Ask, AI notes, reports, snapshot history, and change summaries
+- reports tab actions for copying paths, opening JSON/Markdown, and revealing folders
+- recent projects and previous report loading through `.stackmap/analysis.json`
+- local snapshot history under `.stackmap/history/<timestamp>/`
+- same-repo change summaries against the most recent previous snapshot
+- settings for local defaults and cache paths
+- GitHub cache and recent-project clearing
 - local Ollama model discovery/dropdown
 
 Intentionally not implemented yet:
 
 - full report viewer
-- chat Q&A UI
 - private GitHub repository auth
 - GitHub tokens or GitHub API usage
 - branch selection
 - GitHub cache refresh/pull from the UI
+- cross-repo, branch, or private GitHub comparison
 - packaging
 - cloud APIs or embeddings
 
@@ -101,6 +106,10 @@ The desktop backend normalizes either form to `https://github.com/owner/repo.git
 ```text
 <cached repo>/.stackmap/analysis.json
 <cached repo>/.stackmap/reports/repo-report.md
+<cached repo>/.stackmap/history/<timestamp>/analysis.json
+<cached repo>/.stackmap/history/<timestamp>/repo-report.md
+<cached repo>/.stackmap/qa/latest-question.json
+<cached repo>/.stackmap/qa/history.jsonl
 ```
 
 Repositories are cached under the OS user cache directory:
@@ -126,4 +135,29 @@ Current GitHub limitations:
 - no GitHub tokens
 - no GitHub API calls
 - no branch selector
-- no report comparison
+- no cross-repo or branch comparison
+
+## Reports, Ask, and History
+
+The desktop app uses the same local report files as the CLI:
+
+```text
+.stackmap/analysis.json
+.stackmap/reports/repo-report.md
+.stackmap/history/<timestamp>/analysis.json
+.stackmap/history/<timestamp>/repo-report.md
+.stackmap/qa/latest-question.json
+.stackmap/qa/history.jsonl
+```
+
+Open Existing Report reads `.stackmap/analysis.json` without rerunning analysis or creating a new snapshot. New local or public-GitHub analyses write the latest report files and create a timestamped snapshot. The Reports tab lists recent snapshots and shows a deterministic same-repo change summary when at least one previous snapshot exists.
+
+Ask uses deterministic StackMap evidence by default. Supported examples include:
+
+```text
+Where is auth handled?
+Where is the database initialized?
+How do I run this locally?
+What files should I read first?
+What changed since last analysis?
+```

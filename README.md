@@ -40,6 +40,8 @@ go build -o stackmap ./cmd/stackmap
 | Env var review | Compares app env var usage with `.env.example` and warns about missing or unsafe placeholders. |
 | Deployment readiness checks | Reviews README/setup hints, build/test scripts, health endpoints, migrations, Docker/Vercel signals, and related findings. |
 | Markdown/JSON exports | Writes `.stackmap/reports/repo-report.md` and `.stackmap/analysis.json`. |
+| Local snapshots/history | Keeps timestamped report snapshots under `.stackmap/history/` after successful analysis/export. |
+| Same-repo change summary | Compares the current report with the most recent previous snapshot from the same repo. |
 | TUI overview | Shows a Bubble Tea/Lip Gloss terminal overview for interactive review. |
 | Deterministic audit gate | Provides CI-friendly pass/fail behavior using static findings and readiness rules. |
 | Evidence-based repo Q&A | Answers local questions from StackMap's analysis data, with evidence and optional JSON output. |
@@ -60,6 +62,11 @@ stackmap audit . --allow-missing-tests
 stackmap audit . --fail-on-low
 stackmap ask . "What is this project for?"
 stackmap ask . "Where are the API routes?"
+stackmap ask . "Where is auth handled?"
+stackmap ask . "Where is the database initialized?"
+stackmap ask . "How do I run this locally?"
+stackmap ask . "What files should I read first?"
+stackmap ask . "What changed since last analysis?"
 stackmap ask . "What should I review before deployment?"
 stackmap ask . "Where are the API routes?" --json
 stackmap ask . "What is this project for?" --ai
@@ -123,6 +130,11 @@ Examples:
 ```sh
 stackmap ask . "What is this project for?"
 stackmap ask . "Where are the API routes?"
+stackmap ask . "Where is auth handled?"
+stackmap ask . "Where is the database initialized?"
+stackmap ask . "How do I run this locally?"
+stackmap ask . "What files should I read first?"
+stackmap ask . "What changed since last analysis?"
 stackmap ask . "What should I review before deployment?"
 stackmap ask . "Does this project have tests?"
 stackmap ask . "How is the frontend connected to the backend?"
@@ -131,6 +143,9 @@ stackmap ask . "How is the frontend connected to the backend?"
 Ask mode supports questions about:
 
 - Project purpose and README/package context
+- Auth/login/protected-route evidence
+- Database/storage setup, migrations, schema, and DB-related env vars
+- Local run/setup/build/test scripts
 - Detected stack, frameworks, databases, testing, and deployment targets
 - API routes and backend surface
 - Important folders/files and where to start
@@ -138,6 +153,7 @@ Ask mode supports questions about:
 - Deployment readiness, risks, health checks, and env examples
 - Test files, test scripts, and detected test frameworks
 - Environment variable usage and `.env.example` coverage
+- Same-repo changes since the most recent previous snapshot
 
 Use `--json` to print the Q&A result as JSON:
 
@@ -193,12 +209,20 @@ Reports are written under the analyzed repository:
 ```text
 .stackmap/
   analysis.json
+  history/
+    YYYYMMDD-HHMMSS/
+      analysis.json
+      repo-report.md
   qa/
     latest-question.json
     history.jsonl
   reports/
     repo-report.md
 ```
+
+The latest report files remain stable at `.stackmap/analysis.json` and `.stackmap/reports/repo-report.md`. Each successful analysis/export also creates a timestamped snapshot under `.stackmap/history/<timestamp>/` using names such as `20260616-123456` or `20260616-123456-1` if a directory already exists.
+
+Change summaries are same-repo snapshot comparisons only. StackMap compares the current report with the most recent older snapshot for the same repository and records deterministic route, env var, finding, audit status, stack/framework/database/test/deployment signal, and key-file changes. It does not compare branches, different repositories, or private GitHub sources.
 
 Add `.stackmap/` to your project `.gitignore` unless you deliberately want to commit generated reports.
 
@@ -274,6 +298,21 @@ By default, StackMap tries `llama3.2:3b`, then `qwen:7b`, then falls back to the
 
 The same local-only AI rule applies to `stackmap ask --ai`: the model receives a compact Q&A factsheet, not the full repository.
 
+## Desktop App
+
+The Wails desktop app keeps the same local-first behavior in a compact terminal-like interface. It supports:
+
+- Local project analysis and Open Existing Report.
+- Public HTTPS GitHub URL analysis by cloning into a local StackMap cache.
+- Recent projects.
+- Settings for audit/local Ollama defaults and local cache paths.
+- GitHub cache and recent-project clearing.
+- Reports tab actions to copy/open/reveal report files.
+- Ask tab for deterministic Q&A over the current report.
+- Snapshot history and same-repo change summaries in the Reports tab.
+
+Desktop GitHub support is public-only and local-cache based. It does not use GitHub tokens, private auth, branch selection, cloud APIs, OpenAI, or embeddings.
+
 ## AI Debug Mode
 
 Use `--ai-debug` to inspect the local prompt, factsheet, and model responses:
@@ -341,4 +380,18 @@ go run ./cmd/stackmap analyze . --no-tui
 go run ./cmd/stackmap analyze . --json
 go run ./cmd/stackmap audit .
 go run ./cmd/stackmap
+```
+
+Desktop validation:
+
+```sh
+cd desktop && GOCACHE=/Users/will/Workspace/stackmap/.gocache go test ./...
+npm run build --prefix desktop/frontend
+npm audit --prefix desktop/frontend
+```
+
+Codex's managed sandbox may fail native Wails builds because of system cache or macOS build restrictions. Manual validation command:
+
+```sh
+cd desktop && /Users/will/go/bin/wails build
 ```

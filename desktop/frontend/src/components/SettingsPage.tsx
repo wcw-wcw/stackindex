@@ -56,7 +56,7 @@ export function SettingsPage({
         <section className="settings-section">
           <h2>Local-first</h2>
           <p className="body-copy">
-            StackMap analyzes local files. Public GitHub repositories are cloned into the local cache before analysis. Optional AI uses local Ollama only.
+            StackMap analyzes local files. Public GitHub repositories are cloned into the local cache. Optional AI uses local Ollama only.
           </p>
         </section>
 
@@ -114,7 +114,7 @@ export function SettingsPage({
               Clear GitHub cache
             </button>
           </div>
-          <p className="selected">Refresh cached GitHub repositories is not implemented.</p>
+          <p className="selected">Cached GitHub clones are reused. Clear the cache to reclone on the next analysis.</p>
         </section>
       </div>
 

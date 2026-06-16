@@ -100,7 +100,7 @@ export function LandingPage({
               placeholder="https://github.com/owner/repo"
               disabled={isRunning}
             />
-            <p className="selected">Public HTTPS github.com repositories only. Cloned locally into the StackMap cache. Refresh is not implemented.</p>
+            <p className="selected">Public HTTPS github.com repositories only. Cloned into the local StackMap cache; clear cache to reclone.</p>
           </div>
         )}
 

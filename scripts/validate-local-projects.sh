@@ -42,7 +42,8 @@ run_required() {
 run_optional_audit() {
   local project="$1"
   local label="$2"
-  if go run ./cmd/stackmap audit "$project" >/tmp/stackmap-validate-local.log 2>&1; then
+  shift 2
+  if "$@" >/tmp/stackmap-validate-local.log 2>&1; then
     pass "$label"
     return
   fi
@@ -55,6 +56,58 @@ run_optional_audit() {
   fi
 }
 
+check_file() {
+  local label="$1"
+  local path="$2"
+  if [[ -s "$path" ]]; then
+    pass "$label"
+  else
+    fail "$label"
+    printf '  missing or empty: %s\n' "$path"
+  fi
+}
+
+check_contains() {
+  local label="$1"
+  local path="$2"
+  local needle="$3"
+  if [[ -f "$path" ]] && grep -q "$needle" "$path"; then
+    pass "$label"
+  else
+    fail "$label"
+    printf '  %s did not contain %s\n' "$path" "$needle"
+  fi
+}
+
+latest_snapshot_dir() {
+  local project="$1"
+  local history_dir="$project/.stackmap/history"
+  if [[ ! -d "$history_dir" ]]; then
+    return 1
+  fi
+  find "$history_dir" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1
+}
+
+check_reports() {
+  local project="$1"
+  check_file "latest analysis.json $project" "$project/.stackmap/analysis.json"
+  check_file "latest repo-report.md $project" "$project/.stackmap/reports/repo-report.md"
+}
+
+check_snapshot() {
+  local project="$1"
+  local snapshot
+  snapshot="$(latest_snapshot_dir "$project")"
+  if [[ -z "$snapshot" ]]; then
+    fail "snapshot directory $project"
+    printf '  missing history directory: %s\n' "$project/.stackmap/history"
+    return
+  fi
+  pass "snapshot directory $project"
+  check_file "snapshot analysis.json $project" "$snapshot/analysis.json"
+  check_file "snapshot repo-report.md $project" "$snapshot/repo-report.md"
+}
+
 cd "$ROOT_DIR" || exit 1
 
 run_required "go test ./..." go test ./...
@@ -65,9 +118,23 @@ for project in "${PROJECTS[@]}"; do
     continue
   fi
 
-  run_required "analyze --no-tui $project" go run ./cmd/stackmap analyze "$project" --no-tui
-  run_required "ask $project" go run ./cmd/stackmap ask "$project" "What is this project for?"
-  run_optional_audit "$project" "audit $project"
+  run_optional_audit "$project" "analyze --audit --no-tui $project" go run ./cmd/stackmap analyze "$project" --audit --no-tui
+  check_reports "$project"
+  check_snapshot "$project"
+
+  run_required "ask auth $project" go run ./cmd/stackmap ask "$project" "Where is auth handled?"
+  run_required "ask database $project" go run ./cmd/stackmap ask "$project" "Where is the database initialized?"
+  run_required "ask local run $project" go run ./cmd/stackmap ask "$project" "How do I run this locally?"
+  run_required "ask read first $project" go run ./cmd/stackmap ask "$project" "What files should I read first?"
+  run_required "ask changes $project" go run ./cmd/stackmap ask "$project" "What changed since last analysis?"
+  check_file "qa latest $project" "$project/.stackmap/qa/latest-question.json"
+  check_file "qa history $project" "$project/.stackmap/qa/history.jsonl"
+
+  run_optional_audit "$project" "second analyze --audit --no-tui $project" go run ./cmd/stackmap analyze "$project" --audit --no-tui
+  check_reports "$project"
+  check_snapshot "$project"
+  check_contains "change summary in analysis.json $project" "$project/.stackmap/analysis.json" '"changes"'
+  check_contains "change summary in repo-report.md $project" "$project/.stackmap/reports/repo-report.md" 'Changes Since Previous Snapshot'
 done
 
 rm -f /tmp/stackmap-validate-local.log

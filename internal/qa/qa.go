@@ -558,11 +558,11 @@ func answerChanges(a *models.Analysis, question string) *models.QAResult {
 }
 
 func unsupported(question, detail string) *models.QAResult {
-	answer := "StackMap ask can answer evidence-based questions about project purpose, detected stack, auth/login clues, database/storage, local setup scripts, API routes, important files, frontend/backend connections, deployment readiness, tests, and environment configuration."
+	answer := "StackMap ask can answer local evidence questions about project purpose, detected stack, auth/login clues, database/storage, local setup scripts, API routes, important files, frontend/backend connections, deployment readiness, tests, environment configuration, and changes since the last snapshot."
 	if detail != "" {
 		answer = detail + " " + answer
 	}
-	answer += ` Better questions include "Where is auth handled?", "How do I run this locally?", "Where is the DB client?", "What files should I read first?", or "What should I review before deployment?".`
+	answer += ` Try "Where is auth handled?", "Where is the database initialized?", "How do I run this locally?", "What files should I read first?", or "What changed since last analysis?".`
 	return &models.QAResult{
 		Question:   question,
 		Answer:     answer,
