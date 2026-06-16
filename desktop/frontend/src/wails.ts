@@ -168,6 +168,17 @@ export type ReportsView = {
   jsonPath: string;
   markdownPath: string;
   directory: string;
+  history: SnapshotView[];
+};
+
+export type SnapshotView = {
+  timestamp: string;
+  directory: string;
+  jsonPath: string;
+  markdownPath: string;
+  auditStatus: string;
+  aiStatus: string;
+  generatedAt?: string;
 };
 
 export type AskRequest = {
@@ -210,6 +221,7 @@ declare global {
           OpenExistingReport(path: string): Promise<AnalyzeResponse>;
           OpenMarkdownReport(request: PathActionRequest): Promise<void>;
           RevealProjectFolder(request: PathActionRequest): Promise<void>;
+          RevealSnapshotFolder(request: PathActionRequest): Promise<void>;
           RevealStackMapFolder(request: PathActionRequest): Promise<void>;
           RemoveRecentProject(path: string): Promise<void>;
           SaveDesktopSettings(settings: DesktopSettings): Promise<DesktopSettings>;
@@ -277,6 +289,10 @@ export function revealProjectFolder(request: PathActionRequest) {
 
 export function revealStackMapFolder(request: PathActionRequest) {
   return backend().RevealStackMapFolder(request);
+}
+
+export function revealSnapshotFolder(request: PathActionRequest) {
+  return backend().RevealSnapshotFolder(request);
 }
 
 export function openMarkdownReport(request: PathActionRequest) {

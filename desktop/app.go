@@ -78,6 +78,10 @@ func (a *App) RevealStackMapFolder(request backend.PathActionRequest) error {
 	return a.session.RevealStackMapFolder(context.Background(), request)
 }
 
+func (a *App) RevealSnapshotFolder(request backend.PathActionRequest) error {
+	return a.session.RevealSnapshotFolder(context.Background(), request)
+}
+
 func (a *App) OpenMarkdownReport(request backend.PathActionRequest) error {
 	return a.session.OpenMarkdownReport(context.Background(), request)
 }

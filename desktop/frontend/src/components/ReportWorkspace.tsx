@@ -8,7 +8,9 @@ import {
   openMarkdownReport,
   QAEvidenceView,
   revealProjectFolder,
+  revealSnapshotFolder,
   revealStackMapFolder,
+  SnapshotView,
 } from '../wails';
 import { MetricCard } from './MetricCard';
 import { ReportPath } from './ReportPath';
@@ -374,6 +376,7 @@ function AINotes({ result }: { result: AnalyzeResponse }) {
 function Reports({ result }: { result: AnalyzeResponse }) {
   const [actionStatus, setActionStatus] = useState('');
   const [actionError, setActionError] = useState('');
+  const history = result.reports.history ?? [];
 
   async function runAction(label: string, action: () => Promise<void>) {
     setActionError('');
@@ -447,10 +450,56 @@ function Reports({ result }: { result: AnalyzeResponse }) {
       {result.sourceType === 'github' && (
         <p className="selected">Desktop GitHub repositories are analyzed from the local cached clone, so the copied CLI command uses that cache path.</p>
       )}
+      <div className="history-section">
+        <div className="history-header">
+          <h3>History</h3>
+          <span>{history.length} snapshot{history.length === 1 ? '' : 's'}</span>
+        </div>
+        {history.length === 0 ? (
+          <p className="body-copy">No local snapshots found in `.stackmap/history`.</p>
+        ) : (
+          <div className="snapshot-list">
+            {history.slice(0, 8).map((snapshot) => (
+              <SnapshotRow key={snapshot.directory} snapshot={snapshot} runAction={runAction} />
+            ))}
+          </div>
+        )}
+      </div>
       {actionStatus && <p className="status">{actionStatus}</p>}
       {actionError && <p className="error">{actionError}</p>}
       <p className="body-copy">Reports stay in `.stackmap` inside the analyzed project.</p>
     </>
+  );
+}
+
+function SnapshotRow({ snapshot, runAction }: { snapshot: SnapshotView; runAction: (label: string, action: () => Promise<void>) => Promise<void> }) {
+  const generated = snapshot.generatedAt && snapshot.generatedAt !== 'unknown' ? snapshot.generatedAt : snapshot.timestamp;
+  return (
+    <div className="snapshot-row">
+      <div className="snapshot-meta">
+        <strong>{generated}</strong>
+        <span>{snapshot.timestamp}</span>
+      </div>
+      <div className="snapshot-statuses">
+        <StatusBadge status={snapshot.auditStatus || 'unknown'} />
+        <StatusBadge status={snapshot.aiStatus || 'unknown'} />
+      </div>
+      <div className="snapshot-paths">
+        <ReportPath label="JSON" path={snapshot.jsonPath} />
+        <ReportPath label="Markdown" path={snapshot.markdownPath} />
+      </div>
+      <div className="report-actions snapshot-actions">
+        <button type="button" className="secondary compact" onClick={() => runAction('Open snapshot Markdown', () => openMarkdownReport({ path: snapshot.markdownPath }))}>
+          Open Markdown
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Open snapshot JSON', () => openJSONReport({ path: snapshot.jsonPath }))}>
+          Open JSON
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Reveal snapshot folder', () => revealSnapshotFolder({ path: snapshot.directory }))}>
+          Reveal folder
+        </button>
+      </div>
+    </div>
   );
 }
 

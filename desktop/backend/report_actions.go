@@ -44,6 +44,14 @@ func (s *Session) RevealStackMapFolder(ctx context.Context, request PathActionRe
 	return revealPath(ctx, stackmapPath)
 }
 
+func (s *Session) RevealSnapshotFolder(ctx context.Context, request PathActionRequest) error {
+	path, err := validateExistingDir(request.Path, "snapshot folder")
+	if err != nil {
+		return err
+	}
+	return revealPath(ctx, path)
+}
+
 func (s *Session) OpenMarkdownReport(ctx context.Context, request PathActionRequest) error {
 	path, err := validateReportFile(request.Path, ".md", "Markdown report")
 	if err != nil {

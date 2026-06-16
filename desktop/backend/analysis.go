@@ -122,9 +122,20 @@ type AIView struct {
 }
 
 type ReportsView struct {
+	JSONPath     string         `json:"jsonPath"`
+	MarkdownPath string         `json:"markdownPath"`
+	Directory    string         `json:"directory"`
+	History      []SnapshotView `json:"history"`
+}
+
+type SnapshotView struct {
+	Timestamp    string `json:"timestamp"`
+	Directory    string `json:"directory"`
 	JSONPath     string `json:"jsonPath"`
 	MarkdownPath string `json:"markdownPath"`
-	Directory    string `json:"directory"`
+	AuditStatus  string `json:"auditStatus"`
+	AIStatus     string `json:"aiStatus"`
+	GeneratedAt  string `json:"generatedAt,omitempty"`
 }
 
 type AskRequest struct {
@@ -331,6 +342,7 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 		JSONPath:     response.JSONReportPath,
 		MarkdownPath: response.MDReportPath,
 		Directory:    filepath.Join(root, ".stackmap"),
+		History:      buildSnapshotViews(root),
 	}
 	if request.RunAudit {
 		response.AuditStatus = "not run"
@@ -355,6 +367,26 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 		}
 	}
 	return response
+}
+
+func buildSnapshotViews(root string) []SnapshotView {
+	snapshots, err := stackmapreport.ListSnapshots(root)
+	if err != nil {
+		return []SnapshotView{}
+	}
+	views := make([]SnapshotView, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		views = append(views, SnapshotView{
+			Timestamp:    snapshot.Timestamp,
+			Directory:    snapshot.Directory,
+			JSONPath:     snapshot.JSONPath,
+			MarkdownPath: snapshot.MarkdownPath,
+			AuditStatus:  snapshot.AuditStatus,
+			AIStatus:     snapshot.AIStatus,
+			GeneratedAt:  formatAnalysisTime(snapshot.GeneratedAt),
+		})
+	}
+	return views
 }
 
 func analyzeRequestFromAnalysis(analysis *models.Analysis) AnalyzeRequest {

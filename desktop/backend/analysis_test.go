@@ -139,6 +139,26 @@ func TestAskQuestionAnswersAndWritesArtifacts(t *testing.T) {
 	}
 }
 
+func TestOpenExistingReportDoesNotCreateSnapshot(t *testing.T) {
+	root := t.TempDir()
+	analysisDir := filepath.Join(root, ".stackmap")
+	if err := os.MkdirAll(analysisDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"repoName":"example","generatedAt":"2026-06-16T12:00:00Z"}`)
+	if err := os.WriteFile(filepath.Join(analysisDir, "analysis.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	session := NewSession()
+	if _, err := session.OpenExistingReport(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".stackmap", "history")); !os.IsNotExist(err) {
+		t.Fatalf("OpenExistingReport created history directory, err=%v", err)
+	}
+}
+
 func TestBuildAskResponseCopiesEvidence(t *testing.T) {
 	response := BuildAskResponse(&models.QAResult{
 		Question:   "Where are the API routes?",

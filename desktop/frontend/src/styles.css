@@ -747,6 +747,68 @@ li {
   margin: 14px 0;
 }
 
+.history-section {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+}
+
+.history-header {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.history-header h3 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.history-header span,
+.snapshot-meta span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.snapshot-list {
+  display: grid;
+  gap: 12px;
+}
+
+.snapshot-row {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.snapshot-meta,
+.snapshot-statuses {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.snapshot-meta strong {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.snapshot-paths {
+  display: grid;
+  gap: 6px;
+}
+
+.snapshot-actions {
+  margin: 0;
+}
+
 .ask-panel {
   display: grid;
   gap: 16px;

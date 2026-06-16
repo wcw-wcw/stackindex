@@ -22,7 +22,11 @@ func ExportAll(root string, analysis *models.Analysis) error {
 	if err := WriteJSON(root, analysis); err != nil {
 		return err
 	}
-	return WriteMarkdown(root, analysis)
+	if err := WriteMarkdown(root, analysis); err != nil {
+		return err
+	}
+	_, err := WriteSnapshot(root)
+	return err
 }
 
 func Markdown(a *models.Analysis) string {
