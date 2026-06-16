@@ -2,34 +2,52 @@ import { FormEvent, useEffect, useState } from 'react';
 import { AppShell } from './components/AppShell';
 import { LandingPage } from './components/LandingPage';
 import { ReportWorkspace } from './components/ReportWorkspace';
+import { SettingsPage } from './components/SettingsPage';
 import {
   analyzeGitHubRepo,
   analyzeProject,
   browseFolder,
   AnalyzeResponse,
+  clearGitHubCache,
   clearRecentProjects,
+  DesktopPaths,
+  DesktopSettings,
+  getDesktopPaths,
+  getDesktopSettings,
   getRecentProjects,
   listOllamaModels,
   OllamaModelsResponse,
   openExistingReport,
   RecentProject,
   removeRecentProject,
+  saveDesktopSettings,
 } from './wails';
 
 const defaultPath = '/Users/will/Workspace/stkapp';
 type SourceMode = 'local' | 'github';
+type ViewMode = 'landing' | 'report' | 'settings';
+
+const defaultSettings: DesktopSettings = {
+  defaultRunAudit: true,
+  defaultUseAI: false,
+  defaultModel: '',
+};
 
 export default function App() {
+  const [viewMode, setViewMode] = useState<ViewMode>('landing');
   const [sourceMode, setSourceMode] = useState<SourceMode>('local');
   const [path, setPath] = useState(defaultPath);
   const [githubUrl, setGithubUrl] = useState('');
   const [runAudit, setRunAudit] = useState(true);
   const [useAI, setUseAI] = useState(false);
   const [model, setModel] = useState('');
+  const [settings, setSettings] = useState<DesktopSettings>(defaultSettings);
+  const [desktopPaths, setDesktopPaths] = useState<DesktopPaths | null>(null);
   const [status, setStatus] = useState('Ready to analyze a local project.');
   const [error, setError] = useState('');
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [ollamaModels, setOllamaModels] = useState<OllamaModelsResponse>({
     available: false,
@@ -39,6 +57,7 @@ export default function App() {
   const [isLoadingModels, setIsLoadingModels] = useState(false);
 
   useEffect(() => {
+    loadDesktopState();
     refreshRecentProjects();
   }, []);
 
@@ -59,8 +78,21 @@ export default function App() {
     }
   }
 
-  async function refreshOllamaModels() {
-    if (!useAI) {
+  async function loadDesktopState() {
+    try {
+      const [nextSettings, nextPaths] = await Promise.all([getDesktopSettings(), getDesktopPaths()]);
+      setSettings(nextSettings);
+      setRunAudit(nextSettings.defaultRunAudit);
+      setUseAI(nextSettings.defaultUseAI);
+      setModel(nextSettings.defaultModel);
+      setDesktopPaths(nextPaths);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function refreshOllamaModels(shouldUseAI = useAI) {
+    if (!shouldUseAI) {
       setOllamaModels({ available: false, models: [], message: 'AI disabled' });
       return;
     }
@@ -114,7 +146,8 @@ export default function App() {
       });
       setPath(nextResult.repoPath || projectPath);
       setResult(nextResult);
-      setStatus('Analysis complete.');
+      setViewMode('report');
+      setStatus('Reports written to .stackmap.');
       await refreshRecentProjects();
     } catch (err) {
       setError(errorMessage(err));
@@ -129,8 +162,12 @@ export default function App() {
     setResult(null);
     setIsRunning(true);
     setStatus('Validating GitHub URL...');
-    await Promise.resolve();
-    setStatus('Cloning repository or using cached clone, then analyzing local files...');
+    const cloneStatus = window.setTimeout(() => {
+      setStatus('Cloning repository or using cached clone...');
+    }, 250);
+    const analyzeStatus = window.setTimeout(() => {
+      setStatus('Analyzing local cached files...');
+    }, 1250);
     try {
       const nextResult = await analyzeGitHubRepo({
         url: repoUrl,
@@ -142,12 +179,15 @@ export default function App() {
       setPath(nextResult.repoPath);
       setGithubUrl(nextResult.githubUrl || repoUrl);
       setResult(nextResult);
-      setStatus('Done. Reports written to the cached clone.');
+      setViewMode('report');
+      setStatus('Reports written to the cached clone.');
       await refreshRecentProjects();
     } catch (err) {
       setError(errorMessage(err));
-      setStatus('GitHub analysis failed.');
+      setStatus('GitHub analysis error.');
     } finally {
+      window.clearTimeout(cloneStatus);
+      window.clearTimeout(analyzeStatus);
       setIsRunning(false);
     }
   }
@@ -160,6 +200,7 @@ export default function App() {
       const nextResult = await openExistingReport(projectPath);
       setPath(nextResult.repoPath || projectPath);
       setResult(nextResult);
+      setViewMode('report');
       setStatus('Loaded previous report.');
       await refreshRecentProjects();
     } catch (err) {
@@ -208,6 +249,37 @@ export default function App() {
     }
   }
 
+  async function clearGitHubCacheAction() {
+    setError('');
+    try {
+      await clearGitHubCache();
+      await loadDesktopState();
+      setStatus('Cleared StackMap GitHub cache.');
+    } catch (err) {
+      setError(errorMessage(err));
+      setStatus('Could not clear GitHub cache.');
+    }
+  }
+
+  async function saveSettings(event: FormEvent) {
+    event.preventDefault();
+    setError('');
+    setIsSavingSettings(true);
+    try {
+      const saved = await saveDesktopSettings(settings);
+      setSettings(saved);
+      setRunAudit(saved.defaultRunAudit);
+      setUseAI(saved.defaultUseAI);
+      setModel(saved.defaultModel);
+      setStatus('Saved desktop defaults.');
+    } catch (err) {
+      setError(errorMessage(err));
+      setStatus('Could not save desktop defaults.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  }
+
   function runAgain() {
     if (result?.sourceType === 'github' && result.githubUrl) {
       setSourceMode('github');
@@ -217,12 +289,41 @@ export default function App() {
       setPath(result.repoPath);
     }
     setResult(null);
+    setViewMode('landing');
+  }
+
+  function openSettings() {
+    setError('');
+    setViewMode('settings');
+    loadDesktopState();
+  }
+
+  function backFromSettings() {
+    setError('');
+    setViewMode(result ? 'report' : 'landing');
   }
 
   return (
     <AppShell>
-      {result ? (
-        <ReportWorkspace result={result} onRunAgain={runAgain} />
+      {viewMode === 'settings' ? (
+        <SettingsPage
+          settings={settings}
+          paths={desktopPaths}
+          status={status}
+          error={error}
+          isSaving={isSavingSettings}
+          isRunning={isRunning}
+          ollamaModels={ollamaModels}
+          isLoadingModels={isLoadingModels}
+          onSettingsChange={setSettings}
+          onSaveSettings={saveSettings}
+          onClearRecent={clearRecent}
+          onClearGitHubCache={clearGitHubCacheAction}
+          onRefreshModels={() => refreshOllamaModels(settings.defaultUseAI)}
+          onBack={backFromSettings}
+        />
+      ) : viewMode === 'report' && result ? (
+        <ReportWorkspace result={result} onRunAgain={runAgain} onOpenSettings={openSettings} />
       ) : (
         <LandingPage
           sourceMode={sourceMode}
@@ -250,6 +351,7 @@ export default function App() {
           onAnalyzeAgain={analyzeRecentAgain}
           onRemoveRecent={removeRecent}
           onClearRecent={clearRecent}
+          onOpenSettings={openSettings}
         />
       )}
     </AppShell>

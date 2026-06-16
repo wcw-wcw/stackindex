@@ -29,6 +29,7 @@ type LandingPageProps = {
   onAnalyzeAgain: (project: RecentProject) => void;
   onRemoveRecent: (path: string) => void;
   onClearRecent: () => void;
+  onOpenSettings: () => void;
 };
 
 export function LandingPage({
@@ -57,12 +58,18 @@ export function LandingPage({
   onAnalyzeAgain,
   onRemoveRecent,
   onClearRecent,
+  onOpenSettings,
 }: LandingPageProps) {
   return (
     <section className="panel landing-panel">
-      <div className="eyebrow">Local-first codebase analyzer</div>
-      <h1>StackMap</h1>
-      <p className="intro">Analyze a project on this machine and export the familiar `.stackmap` JSON and Markdown reports.</p>
+      <div className="landing-header">
+        <div>
+          <div className="eyebrow">Local-first codebase analyzer</div>
+          <h1>StackMap</h1>
+          <p className="intro">Analyze a project on this machine and export the familiar `.stackmap` JSON and Markdown reports.</p>
+        </div>
+        <button type="button" className="secondary" onClick={onOpenSettings} disabled={isRunning}>Settings</button>
+      </div>
 
       <form onSubmit={onAnalyze}>
         <label>Source</label>
@@ -93,7 +100,7 @@ export function LandingPage({
               placeholder="https://github.com/owner/repo"
               disabled={isRunning}
             />
-            <p className="selected">Public GitHub repositories only. Cloned locally into the StackMap cache.</p>
+            <p className="selected">Public HTTPS github.com repositories only. Cloned locally into the StackMap cache. Refresh is not implemented.</p>
           </div>
         )}
 

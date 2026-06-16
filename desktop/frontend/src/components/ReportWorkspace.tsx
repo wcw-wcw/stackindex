@@ -7,7 +7,7 @@ import { StackChip } from './StackChip';
 import { StatusBadge } from './StatusBadge';
 import { SectionId } from './sections';
 
-export function ReportWorkspace({ result, onRunAgain }: { result: AnalyzeResponse; onRunAgain: () => void }) {
+export function ReportWorkspace({ result, onRunAgain, onOpenSettings }: { result: AnalyzeResponse; onRunAgain: () => void; onOpenSettings: () => void }) {
   const [activeSection, setActiveSection] = useState<SectionId>('overview');
   const scrollRef = useRef<HTMLElement | null>(null);
 
@@ -27,6 +27,7 @@ export function ReportWorkspace({ result, onRunAgain }: { result: AnalyzeRespons
         </div>
         <div className="header-actions">
           <span className="generated">{result.loadedFromDisk ? 'Loaded report generated' : 'Generated'} {result.generatedAt}</span>
+          <button className="secondary" onClick={onOpenSettings}>Settings</button>
           <button className="secondary" onClick={onRunAgain}>Run again</button>
         </div>
       </header>

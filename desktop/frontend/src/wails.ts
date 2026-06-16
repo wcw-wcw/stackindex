@@ -75,6 +75,18 @@ export type OllamaModelsResponse = {
   message?: string;
 };
 
+export type DesktopSettings = {
+  defaultRunAudit: boolean;
+  defaultUseAI: boolean;
+  defaultModel: string;
+};
+
+export type DesktopPaths = {
+  recentProjectsPath: string;
+  githubCacheRoot: string;
+  settingsPath: string;
+};
+
 export type ContextView = {
   purpose: string;
   confidence: string;
@@ -174,11 +186,15 @@ declare global {
           AnalyzeProject(request: AnalyzeRequest): Promise<AnalyzeResponse>;
           AskQuestion(request: AskRequest): Promise<AskResponse>;
           BrowseFolder(): Promise<string>;
+          ClearGitHubCache(): Promise<void>;
           ClearRecentProjects(): Promise<void>;
+          GetDesktopPaths(): Promise<DesktopPaths>;
+          GetDesktopSettings(): Promise<DesktopSettings>;
           GetRecentProjects(): Promise<RecentProject[]>;
           ListOllamaModels(): Promise<OllamaModelsResponse>;
           OpenExistingReport(path: string): Promise<AnalyzeResponse>;
           RemoveRecentProject(path: string): Promise<void>;
+          SaveDesktopSettings(settings: DesktopSettings): Promise<DesktopSettings>;
         };
       };
     };
@@ -219,6 +235,22 @@ export function removeRecentProject(path: string) {
 
 export function clearRecentProjects() {
   return backend().ClearRecentProjects();
+}
+
+export function clearGitHubCache() {
+  return backend().ClearGitHubCache();
+}
+
+export function getDesktopSettings() {
+  return backend().GetDesktopSettings();
+}
+
+export function saveDesktopSettings(settings: DesktopSettings) {
+  return backend().SaveDesktopSettings(settings);
+}
+
+export function getDesktopPaths() {
+  return backend().GetDesktopPaths();
 }
 
 export function askQuestion(request: AskRequest) {

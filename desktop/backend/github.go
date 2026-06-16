@@ -61,6 +61,11 @@ func (s *Session) AnalyzeGitHubRepo(ctx context.Context, request GitHubAnalyzeRe
 	if err != nil {
 		return nil, err
 	}
+	if cachePath, err := s.githubRepoCachePath(repo.Owner, repo.Repo); err != nil {
+		return nil, err
+	} else {
+		repo.LocalCachePath = cachePath
+	}
 	if request.Refresh {
 		return nil, errors.New("refreshing cached GitHub repositories is not implemented in this MVP; remove the cached repo to clone again")
 	}
@@ -185,10 +190,38 @@ func githubCachePath(owner, repo string) (string, error) {
 }
 
 func githubCachePathFromBase(base, owner, repo string) (string, error) {
+	root, err := githubCacheRootFromBase(base)
+	if err != nil {
+		return "", err
+	}
+	return githubCachePathFromRoot(root, owner, repo)
+}
+
+func githubCacheRootFromBase(base string) (string, error) {
+	target := strings.TrimSpace(base)
+	if target == "" {
+		return "", errors.New("could not determine local StackMap cache directory")
+	}
+	return filepath.Join(target, "StackMap", "repos", "github.com"), nil
+}
+
+func githubCachePathFromRoot(root, owner, repo string) (string, error) {
 	if !validGitHubSegment(owner) || !validGitHubSegment(repo) {
 		return "", errors.New("GitHub URL contains an invalid owner or repo name")
 	}
-	return filepath.Join(base, "StackMap", "repos", "github.com", owner, repo), nil
+	target := strings.TrimSpace(root)
+	if target == "" {
+		return "", errors.New("could not determine local StackMap GitHub cache directory")
+	}
+	return filepath.Join(target, owner, repo), nil
+}
+
+func (s *Session) githubRepoCachePath(owner, repo string) (string, error) {
+	root, err := s.githubCacheRootPath()
+	if err != nil {
+		return "", err
+	}
+	return githubCachePathFromRoot(root, owner, repo)
 }
 
 func gitCloneArgs(cloneURL, targetPath string) []string {

@@ -54,6 +54,22 @@ func (a *App) ClearRecentProjects() error {
 	return a.session.ClearRecentProjects()
 }
 
+func (a *App) GetDesktopSettings() (*backend.DesktopSettings, error) {
+	return a.session.GetDesktopSettings()
+}
+
+func (a *App) SaveDesktopSettings(settings backend.DesktopSettings) (*backend.DesktopSettings, error) {
+	return a.session.SaveDesktopSettings(settings)
+}
+
+func (a *App) GetDesktopPaths() (*backend.DesktopPaths, error) {
+	return a.session.GetDesktopPaths()
+}
+
+func (a *App) ClearGitHubCache() error {
+	return a.session.ClearGitHubCache()
+}
+
 func (a *App) AskQuestion(request backend.AskRequest) (*backend.AskResponse, error) {
 	return a.session.AskQuestion(context.Background(), request)
 }

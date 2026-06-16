@@ -164,6 +164,8 @@ type Session struct {
 	root               string
 	analysis           *models.Analysis
 	recentProjectsPath string
+	settingsPath       string
+	githubCacheRoot    string
 	gitRunner          commandRunner
 }
 
