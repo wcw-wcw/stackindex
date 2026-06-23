@@ -131,6 +131,28 @@ type StructureMap struct {
 	KeyFiles    []FileRole      `json:"keyFiles,omitempty"`
 }
 
+type FeatureMap struct {
+	Features    []FeatureCluster `json:"features,omitempty"`
+	RouteChains []RouteChain     `json:"routeChains,omitempty"`
+}
+
+type FeatureCluster struct {
+	Name         string   `json:"name"`
+	StartHere    []string `json:"startHere,omitempty"`
+	RelatedTests []string `json:"relatedTests,omitempty"`
+	SearchTerms  []string `json:"searchTerms,omitempty"`
+	AvoidFirst   []string `json:"avoidFirst,omitempty"`
+	Routes       []string `json:"routes,omitempty"`
+	Confidence   string   `json:"confidence"`
+}
+
+type RouteChain struct {
+	Route   string   `json:"route"`
+	Files   []string `json:"files,omitempty"`
+	Tests   []string `json:"tests,omitempty"`
+	Summary string   `json:"summary,omitempty"`
+}
+
 type DependencyGraph struct {
 	Nodes             []DependencyNode       `json:"nodes,omitempty"`
 	Edges             []DependencyEdge       `json:"edges,omitempty"`
@@ -190,10 +212,12 @@ type Analysis struct {
 	RepoName     string             `json:"repoName"`
 	GeneratedAt  time.Time          `json:"generatedAt"`
 	Files        []FileInfo         `json:"files"`
+	Quality      IndexQuality       `json:"indexQuality"`
 	Stack        StackInfo          `json:"stack"`
 	PackageInfo  *PackageInfo       `json:"packageInfo,omitempty"`
 	Context      ProjectContext     `json:"projectContext"`
 	Structure    StructureMap       `json:"structureMap"`
+	Features     FeatureMap         `json:"featureMap"`
 	Dependencies DependencyGraph    `json:"dependencyGraph"`
 	Env          EnvAnalysis        `json:"env"`
 	Routes       []RouteInfo        `json:"routes"`

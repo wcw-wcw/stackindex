@@ -1,6 +1,8 @@
 # StackIndex
 
-StackIndex condenses a repository into an agent-facing Markdown index so coding agents can search with better context and fewer wasted tokens. The MVP is a local-first Go CLI that scans a repo, detects important project signals, and writes a stable glossary-style file at:
+StackIndex is a local-first repo orientation file generator for coding agents. It creates a compact, deterministic search plan so agents know where to start, what to avoid, and when to broaden.
+
+The MVP condenses a repository into an agent-facing Markdown index so coding agents can search with better context and fewer wasted tokens. It scans a repo, detects important project signals, and writes a stable glossary-style file at:
 
 ```text
 .stackindex/reports/repo-index.md
@@ -27,7 +29,11 @@ go build -o stackindex ./cmd/stackindex
 | Feature | Status |
 | --- | --- |
 | Repo walking with ignore rules | Implemented |
+| Index quality/trustworthiness summary | Implemented |
 | Agent-oriented Markdown index | Implemented |
+| Feature map with start files, tests, terms, and avoid-first guidance | Implemented |
+| Task-specific search recipes | Implemented |
+| Compact route-to-code chains | Implemented |
 | JSON analysis output | Implemented |
 | Key file and directory role detection | Implemented |
 | Lightweight dependency graph for source files | Implemented |

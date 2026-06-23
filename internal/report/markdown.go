@@ -41,7 +41,11 @@ func Markdown(a *models.Analysis) string {
 	fmt.Fprintf(&b, "## Repository Snapshot\n\n")
 	fmt.Fprintf(&b, "- Repository: `%s`\n- Path: `%s`\n- Files indexed: %d\n- Finding summary: %s\n\n", a.RepoName, a.RepoPath, len(a.Files), findingSummary(a.Findings))
 
+	writeIndexQuality(&b, a)
 	writeProjectContext(&b, a)
+	writeFeatureMap(&b, a)
+	writeTaskSearchRecipes(&b, a)
+	writeRouteChains(&b, a)
 	writeAgentSearchGuide(&b, a)
 	writeSearchBudgetHints(&b, a)
 
@@ -151,6 +155,102 @@ func Markdown(a *models.Analysis) string {
 	return b.String()
 }
 
+func writeIndexQuality(b *strings.Builder, a *models.Analysis) {
+	q := a.Quality
+	fmt.Fprintf(b, "## Index Quality\n\n")
+	fmt.Fprintf(b, "- Generated/cache folders ignored: %s\n", present(q.GeneratedOrCacheDirsIgnored))
+	fmt.Fprintf(b, "- Ignored generated/cache directories: %d\n", totalIgnoredDirs(q.IgnoredDirCounts))
+	fmt.Fprintf(b, "- Large files skipped: %d\n", q.LargeFilesSkipped)
+	fmt.Fprintf(b, "- Binary files skipped: %d\n", q.BinaryFilesSkipped)
+	fmt.Fprintf(b, "- Unresolved internal imports: %d\n", q.UnresolvedInternalImports)
+	if len(q.Warnings) > 0 {
+		fmt.Fprintln(b, "- Confidence warnings:")
+		for _, warning := range q.Warnings {
+			fmt.Fprintf(b, "  - %s\n", warning)
+		}
+	}
+	fmt.Fprintln(b)
+}
+
+func writeFeatureMap(b *strings.Builder, a *models.Analysis) {
+	if len(a.Features.Features) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "## Feature Map\n\n")
+	for _, feature := range a.Features.Features {
+		fmt.Fprintf(b, "### %s\n\n", feature.Name)
+		writePathList(b, "Start here", feature.StartHere)
+		writePathList(b, "Related tests", feature.RelatedTests)
+		writeNameList(b, "Search terms", feature.SearchTerms)
+		writeNameList(b, "Routes", feature.Routes)
+		writeNameList(b, "Avoid first", feature.AvoidFirst)
+		fmt.Fprintf(b, "- Confidence: %s\n\n", feature.Confidence)
+	}
+}
+
+func writeTaskSearchRecipes(b *strings.Builder, a *models.Analysis) {
+	fmt.Fprintf(b, "## Task Search Recipes\n\n")
+	if len(a.Routes) > 0 {
+		fmt.Fprintln(b, "### Fix API Behavior")
+		fmt.Fprintln(b)
+		fmt.Fprintln(b, "1. Open the matching file in API Routes or Route Implementation Chains.")
+		fmt.Fprintln(b, "2. Follow the listed imports into shared `src/lib/`, database, schema, or validation files.")
+		fmt.Fprintln(b, "3. Open the nearest related test from Feature Map or Route Implementation Chains.")
+		fmt.Fprintln(b, "4. Broaden to whole-repo search only after route, schema, storage, and tests are checked.")
+		fmt.Fprintln(b)
+	}
+	if hasFrontendSurface(a) {
+		fmt.Fprintln(b, "### Fix UI Behavior")
+		fmt.Fprintln(b)
+		fmt.Fprintln(b, "1. Start from the matching `src/app/<feature>/page.*` or sibling component in Feature Map.")
+		fmt.Fprintln(b, "2. Search inside that feature folder and matching `src/lib/<feature>/` before shared modules.")
+		fmt.Fprintln(b, "3. Check API calls and route handlers before editing shared database code.")
+		fmt.Fprintln(b, "4. Avoid global styles/assets unless the task is visual or layout-specific.")
+		fmt.Fprintln(b)
+	}
+	if a.Env.UsesEnvVars || a.Deployment.HasEnvExample {
+		fmt.Fprintln(b, "### Fix Env Or Deployment Issue")
+		fmt.Fprintln(b)
+		fmt.Fprintln(b, "1. Open `.env.example` if present.")
+		fmt.Fprintln(b, "2. Open env/config files from Key Files or Feature Map.")
+		fmt.Fprintln(b, "3. Check deployment docs, migrations, and package scripts.")
+		fmt.Fprintln(b, "4. Avoid unrelated feature files unless they reference the specific env var.")
+		fmt.Fprintln(b)
+	}
+	if hasWorkerSurface(a) {
+		fmt.Fprintln(b, "### Debug Worker Or Scheduled Job")
+		fmt.Fprintln(b)
+		fmt.Fprintln(b, "1. Start from worker entries in Feature Map or Key Files.")
+		fmt.Fprintln(b, "2. Follow imports into shared config, repositories, and domain logic.")
+		fmt.Fprintln(b, "3. Check scripts and tests that mention worker, tick, queue, cron, or sync.")
+		fmt.Fprintln(b, "4. Broaden only after the worker entrypoint and its direct dependencies are understood.")
+		fmt.Fprintln(b)
+	}
+}
+
+func writeRouteChains(b *strings.Builder, a *models.Analysis) {
+	if len(a.Features.RouteChains) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "## Route Implementation Chains\n\n")
+	for _, chain := range a.Features.RouteChains {
+		fmt.Fprintf(b, "- `%s`\n", chain.Route)
+		if len(chain.Files) > 0 {
+			fmt.Fprintln(b, "  - Follow:")
+			for _, file := range chain.Files {
+				fmt.Fprintf(b, "    - `%s`\n", file)
+			}
+		}
+		if len(chain.Tests) > 0 {
+			fmt.Fprintln(b, "  - Tests:")
+			for _, file := range chain.Tests {
+				fmt.Fprintf(b, "    - `%s`\n", file)
+			}
+		}
+	}
+	fmt.Fprintln(b)
+}
+
 func writeAgentSearchGuide(b *strings.Builder, a *models.Analysis) {
 	fmt.Fprintf(b, "## Agent Search Guide\n\n")
 	readFirst := agentReadFirstFiles(a)
@@ -179,6 +279,17 @@ func writeAgentSearchGuide(b *strings.Builder, a *models.Analysis) {
 		}
 	}
 	fmt.Fprintln(b)
+}
+
+func writePathList(b *strings.Builder, label string, paths []string) {
+	if len(paths) == 0 {
+		fmt.Fprintf(b, "- %s: none detected\n", label)
+		return
+	}
+	fmt.Fprintf(b, "- %s:\n", label)
+	for _, path := range paths {
+		fmt.Fprintf(b, "  - `%s`\n", path)
+	}
 }
 
 func writeSearchBudgetHints(b *strings.Builder, a *models.Analysis) {
@@ -692,6 +803,38 @@ func present(ok bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+func totalIgnoredDirs(counts map[string]int) int {
+	total := 0
+	for _, count := range counts {
+		total += count
+	}
+	return total
+}
+
+func hasFrontendSurface(a *models.Analysis) bool {
+	for _, file := range a.Files {
+		lower := strings.ToLower(file.Path)
+		if strings.HasPrefix(lower, "src/app/") || strings.Contains(lower, "/components/") || strings.HasSuffix(lower, ".tsx") || strings.HasSuffix(lower, ".jsx") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWorkerSurface(a *models.Analysis) bool {
+	for _, file := range a.Files {
+		if strings.Contains(strings.ToLower(file.Path), "worker") {
+			return true
+		}
+	}
+	for _, feature := range a.Features.Features {
+		if strings.Contains(strings.ToLower(feature.Name), "worker") {
+			return true
+		}
+	}
+	return false
 }
 
 func withArticle(phrase string) string {

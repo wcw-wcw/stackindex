@@ -23,7 +23,7 @@ func Classify(path string) (string, models.FileKind) {
 	}
 
 	if strings.Contains(path, "migration") || strings.Contains(path, "schema") {
-		if ext == ".sql" || ext == ".prisma" || ext == ".ts" || ext == ".js" {
+		if ext == ".sql" || ext == ".prisma" {
 			return languageForExt(ext), models.FileKindConfig
 		}
 	}

@@ -1,10 +1,13 @@
 package analyzers
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/wcw-wcw/stackindex/internal/models"
@@ -24,9 +27,6 @@ var (
 	jsExportFromPattern    = regexp.MustCompile(`(?m)\bexport\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+["']([^"']+)["']`)
 	jsRequirePattern       = regexp.MustCompile(`(?m)\brequire\s*\(\s*["']([^"']+)["']\s*\)`)
 	jsDynamicImportPattern = regexp.MustCompile(`(?m)\bimport\s*\(\s*["']([^"']+)["']\s*\)`)
-	goImportBlockPattern   = regexp.MustCompile(`(?s)\bimport\s*\((.*?)\)`)
-	goImportSinglePattern  = regexp.MustCompile(`(?m)^\s*import\s+(?:[._A-Za-z0-9]+\s+)?("[^"]+")`)
-	goImportStringPattern  = regexp.MustCompile(`"([^"]+)"`)
 )
 
 var jsImportExtensions = []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
@@ -152,15 +152,13 @@ func extractJSImports(content string) []importRef {
 
 func extractGoImports(content string) []importRef {
 	var imports []importRef
-	withoutBlocks := goImportBlockPattern.ReplaceAllStringFunc(content, func(block string) string {
-		for _, match := range goImportStringPattern.FindAllStringSubmatch(block, -1) {
-			imports = append(imports, importRef{path: match[1]})
-		}
-		return ""
-	})
-	for _, match := range goImportSinglePattern.FindAllStringSubmatch(withoutBlocks, -1) {
-		path := strings.Trim(match[1], `"`)
-		if path != "" {
+	file, err := parser.ParseFile(token.NewFileSet(), "", content, parser.ImportsOnly)
+	if err != nil {
+		return nil
+	}
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err == nil && path != "" {
 			imports = append(imports, importRef{path: path})
 		}
 	}
@@ -188,6 +186,12 @@ func (w *graphWork) addImportEdge(from string, imp importRef, pkg *models.Packag
 	}
 	edge := models.DependencyEdge{From: from, ImportPath: path, Confidence: "medium"}
 	fromExt := strings.ToLower(filepath.Ext(from))
+	if isAssetImport(path) {
+		edge.Kind = "asset"
+		edge.Confidence = "high"
+		w.edges = append(w.edges, edge)
+		return
+	}
 	switch {
 	case strings.HasPrefix(path, "."):
 		edge.Kind = "relative"
@@ -252,6 +256,15 @@ func (w *graphWork) resolveRelativeImport(from, importPath string) (string, bool
 		}
 	}
 	return "", false
+}
+
+func isAssetImport(importPath string) bool {
+	switch strings.ToLower(filepath.Ext(importPath)) {
+	case ".css", ".scss", ".sass", ".less", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".woff", ".woff2", ".ttf", ".otf":
+		return true
+	default:
+		return false
+	}
 }
 
 func (w *graphWork) resolveGoModuleImport(importPath, moduleName string) (string, bool) {

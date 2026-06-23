@@ -14,19 +14,37 @@ import (
 
 const maxHashBytes = 2 * 1024 * 1024
 
+type WalkResult struct {
+	Files   []models.FileInfo
+	Quality models.IndexQuality
+}
+
 func Walk(root string) ([]models.FileInfo, error) {
+	result, err := WalkDetailed(root)
+	if err != nil {
+		return nil, err
+	}
+	return result.Files, nil
+}
+
+func WalkDetailed(root string) (*WalkResult, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
 
 	var files []models.FileInfo
+	quality := models.IndexQuality{
+		GeneratedOrCacheDirsIgnored: true,
+		IgnoredDirCounts:            map[string]int{},
+	}
 	err = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if d.IsDir() {
 			if path != absRoot && ShouldIgnoreDir(d.Name()) {
+				quality.IgnoredDirCounts[d.Name()]++
 				return filepath.SkipDir
 			}
 			return nil
@@ -46,7 +64,9 @@ func Walk(root string) ([]models.FileInfo, error) {
 			return err
 		}
 		if info.Size() > maxHashBytes {
-			return addFile(&files, rel, info.Size(), "")
+			quality.LargeFilesSkipped++
+			quality.SkippedLargeFiles = appendSkippedFile(quality.SkippedLargeFiles, rel, info.Size(), "larger than scanner limit")
+			return nil
 		}
 
 		data, err := os.ReadFile(path)
@@ -54,6 +74,8 @@ func Walk(root string) ([]models.FileInfo, error) {
 			return err
 		}
 		if IsLikelyBinary(data) {
+			quality.BinaryFilesSkipped++
+			quality.SkippedBinaryFiles = appendSkippedFile(quality.SkippedBinaryFiles, rel, info.Size(), "binary content")
 			return nil
 		}
 
@@ -67,7 +89,10 @@ func Walk(root string) ([]models.FileInfo, error) {
 	sort.Slice(files, func(i, j int) bool {
 		return strings.Compare(files[i].Path, files[j].Path) < 0
 	})
-	return files, nil
+	if len(quality.IgnoredDirCounts) == 0 {
+		quality.IgnoredDirCounts = nil
+	}
+	return &WalkResult{Files: files, Quality: quality}, nil
 }
 
 func addFile(files *[]models.FileInfo, rel string, size int64, hash string) error {
@@ -81,4 +106,11 @@ func addFile(files *[]models.FileInfo, rel string, size int64, hash string) erro
 		Hash:      hash,
 	})
 	return nil
+}
+
+func appendSkippedFile(files []models.SkippedFileInfo, path string, size int64, reason string) []models.SkippedFileInfo {
+	if len(files) >= 20 {
+		return files
+	}
+	return append(files, models.SkippedFileInfo{Path: path, SizeBytes: size, Reason: reason})
 }

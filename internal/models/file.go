@@ -18,3 +18,20 @@ type FileInfo struct {
 	Kind      FileKind `json:"kind"`
 	Hash      string   `json:"hash,omitempty"`
 }
+
+type IndexQuality struct {
+	GeneratedOrCacheDirsIgnored bool              `json:"generatedOrCacheDirsIgnored"`
+	IgnoredDirCounts            map[string]int    `json:"ignoredDirCounts,omitempty"`
+	LargeFilesSkipped           int               `json:"largeFilesSkipped"`
+	BinaryFilesSkipped          int               `json:"binaryFilesSkipped"`
+	UnresolvedInternalImports   int               `json:"unresolvedInternalImports"`
+	Warnings                    []string          `json:"warnings,omitempty"`
+	SkippedLargeFiles           []SkippedFileInfo `json:"skippedLargeFiles,omitempty"`
+	SkippedBinaryFiles          []SkippedFileInfo `json:"skippedBinaryFiles,omitempty"`
+}
+
+type SkippedFileInfo struct {
+	Path      string `json:"path"`
+	SizeBytes int64  `json:"sizeBytes,omitempty"`
+	Reason    string `json:"reason"`
+}
