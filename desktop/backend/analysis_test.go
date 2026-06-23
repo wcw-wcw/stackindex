@@ -72,6 +72,9 @@ func TestBuildAnalyzeResponseMapsDesktopSummary(t *testing.T) {
 	if response.Reports.MarkdownPath != filepath.Join(root, ".stackindex", "reports", "repo-index.md") {
 		t.Fatalf("unexpected reports view: %#v", response.Reports)
 	}
+	if response.Reports.FullMarkdownPath != filepath.Join(root, ".stackindex", "reports", "repo-index.full.md") {
+		t.Fatalf("unexpected full report path: %#v", response.Reports)
+	}
 }
 
 func TestBuildAnalyzeResponseDefaultStatuses(t *testing.T) {

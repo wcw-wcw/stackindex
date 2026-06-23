@@ -213,6 +213,7 @@ func printExportSummary(root string) {
 	fmt.Printf("StackIndex analysis exported to %s\n", outDir)
 	fmt.Printf("JSON: %s\n", filepath.Join(outDir, "analysis.json"))
 	fmt.Printf("Markdown: %s\n", filepath.Join(outDir, "reports", "repo-index.md"))
+	fmt.Printf("Full Markdown: %s\n", filepath.Join(outDir, "reports", "repo-index.full.md"))
 	fmt.Println("Note: .stackindex is a hidden folder on macOS Finder. Press Cmd+Shift+. in Finder to show hidden files.")
 }
 

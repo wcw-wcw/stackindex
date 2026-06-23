@@ -167,6 +167,7 @@ export type AIView = {
 export type ReportsView = {
   jsonPath: string;
   markdownPath: string;
+  fullMarkdownPath: string;
   directory: string;
   history: SnapshotView[];
   changes: ChangeView;
@@ -177,6 +178,7 @@ export type SnapshotView = {
   directory: string;
   jsonPath: string;
   markdownPath: string;
+  fullMarkdownPath: string;
   auditStatus: string;
   aiStatus: string;
   generatedAt?: string;

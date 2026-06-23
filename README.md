@@ -71,14 +71,16 @@ StackIndex writes generated artifacts under the analyzed repository:
     YYYYMMDD-HHMMSS/
       analysis.json
       repo-index.md
+      repo-index.full.md
   qa/
     latest-question.json
     history.jsonl
   reports/
     repo-index.md
+    repo-index.full.md
 ```
 
-The main artifact is `.stackindex/reports/repo-index.md`. `.stackindex/analysis.json` keeps the same information in a structured form for future automation.
+The main artifact is `.stackindex/reports/repo-index.md`, a compact search plan. `.stackindex/reports/repo-index.full.md` carries verbose routes, env vars, scripts, findings, and file counts. `.stackindex/analysis.json` keeps the same information in a structured form for future automation.
 
 `.stackindex/` is ignored by this repository and should usually be ignored by projects being analyzed unless generated indexes are intentionally committed.
 
@@ -93,6 +95,7 @@ The main artifact is `.stackindex/reports/repo-index.md`. `.stackindex/analysis.
 - **Key Files**: important manifests, entrypoints, configs, docs, routes, scripts, and tests.
 - **File Connections**: highly connected files that are likely worth inspecting before leaves.
 - **Operational Signals**: scripts, env var names, routes, tests, deployment readiness, and findings.
+- **Important Exports**: lightweight TypeScript/JavaScript, Go, and Python symbol summaries for high-priority files.
 
 ## Local-First Behavior
 

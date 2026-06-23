@@ -31,6 +31,7 @@ func Analyze(root string) (*models.Analysis, error) {
 	context, structure := AnalyzeProjectContext(absRoot, files, pkg, stack, env, routes)
 	dependencies := AnalyzeDependencyGraph(absRoot, files, pkg, structure, routes, deployment)
 	features := AnalyzeFeatureMap(files, routes, dependencies)
+	symbols := AnalyzeSymbols(absRoot, files, features, dependencies)
 	quality := walk.Quality
 	quality.UnresolvedInternalImports = countUnresolvedInternalImports(dependencies.UnresolvedImports)
 	quality.Warnings = indexQualityWarnings(quality)
@@ -51,6 +52,7 @@ func Analyze(root string) (*models.Analysis, error) {
 		Context:      context,
 		Structure:    structure,
 		Features:     features,
+		Symbols:      symbols,
 		Dependencies: dependencies,
 		Env:          env,
 		Routes:       routes,

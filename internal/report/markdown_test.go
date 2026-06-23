@@ -272,7 +272,7 @@ func TestStructuredAISummaryTakesPrecedenceOverDeterministicFallback(t *testing.
 	}
 }
 
-func TestMarkdownOnlyListsMissingRequiredEnvVars(t *testing.T) {
+func TestFullMarkdownOnlyListsMissingRequiredEnvVars(t *testing.T) {
 	analysis := baseAnalysis()
 	analysis.Env = models.EnvAnalysis{
 		UsesEnvVars:                true,
@@ -285,12 +285,12 @@ func TestMarkdownOnlyListsMissingRequiredEnvVars(t *testing.T) {
 		},
 	}
 
-	out := Markdown(analysis)
+	out := FullMarkdown(analysis)
 	if !strings.Contains(out, "- Missing required from .env.example: `DATABASE_URL`") {
-		t.Fatalf("Markdown did not list required missing env var:\n%s", out)
+		t.Fatalf("FullMarkdown did not list required missing env var:\n%s", out)
 	}
 	if strings.Contains(out, "Missing from .env.example") {
-		t.Fatalf("Markdown used old noisy missing env label:\n%s", out)
+		t.Fatalf("FullMarkdown used old noisy missing env label:\n%s", out)
 	}
 }
 
@@ -444,6 +444,46 @@ func TestMarkdownDoesNotRenderEmptyKeyFileDescription(t *testing.T) {
 	}
 	if !strings.Contains(out, "`docs/deployment-checklist.md` — Deployment documentation.") {
 		t.Fatalf("Markdown did not render useful fallback description:\n%s", out)
+	}
+}
+
+func TestMarkdownCompactAndFullOutputsSplitVerboseDetails(t *testing.T) {
+	analysis := richAnalysis()
+	analysis.PackageInfo = &models.PackageInfo{Scripts: map[string]string{"test": "vitest"}}
+	analysis.Env = models.EnvAnalysis{UsesEnvVars: true, ExampleFile: ".env.example", UsedVars: []models.EnvVar{{Name: "DATABASE_URL", Classification: "required_app_config"}}}
+	analysis.Routes = []models.RouteInfo{{Method: "GET", Path: "/api/health", SourceFile: "src/app/api/health/route.ts", Confidence: "high"}}
+
+	compact := Markdown(analysis)
+	full := FullMarkdown(analysis)
+
+	if strings.Contains(compact, "## Package Scripts") || strings.Contains(compact, "## Environment Variables") || strings.Contains(compact, "## API Routes") {
+		t.Fatalf("compact markdown included verbose sections:\n%s", compact)
+	}
+	if !strings.Contains(compact, "repo-index.full.md") {
+		t.Fatalf("compact markdown did not point to full report:\n%s", compact)
+	}
+	for _, want := range []string{"## Package Scripts", "## Environment Variables", "## API Routes"} {
+		if !strings.Contains(full, want) {
+			t.Fatalf("full markdown missing %q:\n%s", want, full)
+		}
+	}
+}
+
+func TestMarkdownRendersImportantExports(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Symbols = models.SymbolIndex{Files: []models.FileSymbols{{
+		Path: "src/lib/rules/schema.ts",
+		Symbols: []models.ExportedSymbol{
+			{Name: "RuleSchema", Kind: "value"},
+			{Name: "validateRuleInput", Kind: "function"},
+		},
+	}}}
+
+	out := Markdown(analysis)
+	for _, want := range []string{"## Important Exports", "`src/lib/rules/schema.ts`", "`RuleSchema` (value)", "`validateRuleInput` (function)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown missing %q:\n%s", want, out)
+		}
 	}
 }
 

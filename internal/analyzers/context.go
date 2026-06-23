@@ -45,7 +45,7 @@ var purposeRules = []purposeRule{
 	{purpose: "Twitter-style social application", fallback: "Social web application", terms: []string{"tweet", "tweets", "post", "posts", "repost", "reposts", "follow", "followers", "following", "timeline", "hashtag", "hashtags", "mention", "mentions", "profile", "profiles"}},
 	{purpose: "Stock monitoring and alerting application", fallback: "Stock monitoring web application", terms: []string{"stock", "stocks", "market", "markets", "watchlist", "watchlists", "alert", "alerts", "alpaca", "spy", "trading", "candles", "ticker", "tickers"}},
 	{purpose: "Anime recommendation/discovery application", fallback: "Anime discovery web application", terms: []string{"anime", "recommendation", "recommendations", "recommend", "myanimelist", "mal", "catalog", "embeddings", "embedding", "pgvector", "similar", "similarity"}},
-	{purpose: "Go CLI/TUI repository analysis tool", fallback: "Developer tooling application", terms: []string{"stackindex", "cli", "tui", "analyze repo", "analyze repository", "audit", "codebase", "stack detection", "report", "reports", "deployment readiness"}},
+	{purpose: "Go CLI/TUI repository analysis tool", fallback: "Developer tooling application", terms: []string{"stackindex", "cli", "tui", "analyze repo", "analyze repository", "repo orientation", "orientation file", "search plan", "coding agent", "coding agents", "agent-facing", "codebase", "stack detection", "report", "reports", "deployment readiness"}},
 }
 
 var readmeNoisePrefixes = []string{"[![", "![", "<img", "<picture", "<!--"}

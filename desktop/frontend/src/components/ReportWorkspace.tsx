@@ -418,7 +418,8 @@ function Reports({ result }: { result: AnalyzeResponse }) {
       <SectionHeader title="Reports" subtitle="Files written by the local StackIndex analysis run." />
       <div className="report-paths">
         <ReportPath label="JSON" path={result.reports.jsonPath} />
-        <ReportPath label="Markdown" path={result.reports.markdownPath} />
+        <ReportPath label="Compact Markdown" path={result.reports.markdownPath} />
+        <ReportPath label="Full Markdown" path={result.reports.fullMarkdownPath} />
         <ReportPath label="Directory" path={result.reports.directory} />
       </div>
       <div className="report-actions">
@@ -431,6 +432,9 @@ function Reports({ result }: { result: AnalyzeResponse }) {
         <button type="button" className="secondary compact" onClick={() => runAction('Copy Markdown report path', () => copyText('Markdown report path', result.reports.markdownPath))}>
           Copy Markdown report path
         </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Copy full Markdown report path', () => copyText('Full Markdown report path', result.reports.fullMarkdownPath))}>
+          Copy full Markdown report path
+        </button>
         <button type="button" className="secondary compact" onClick={() => runAction('Reveal project folder', () => revealProjectFolder({ path: result.repoPath }))}>
           Reveal project folder
         </button>
@@ -439,6 +443,9 @@ function Reports({ result }: { result: AnalyzeResponse }) {
         </button>
         <button type="button" className="secondary compact" onClick={() => runAction('Open Markdown report', () => openMarkdownReport({ path: result.reports.markdownPath }))}>
           Open Markdown report
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Open full Markdown report', () => openMarkdownReport({ path: result.reports.fullMarkdownPath }))}>
+          Open full Markdown report
         </button>
         <button type="button" className="secondary compact" onClick={() => runAction('Open JSON report', () => openJSONReport({ path: result.reports.jsonPath }))}>
           Open JSON report
@@ -534,11 +541,15 @@ function SnapshotRow({ snapshot, runAction }: { snapshot: SnapshotView; runActio
       </div>
       <div className="snapshot-paths">
         <ReportPath label="JSON" path={snapshot.jsonPath} />
-        <ReportPath label="Markdown" path={snapshot.markdownPath} />
+        <ReportPath label="Compact Markdown" path={snapshot.markdownPath} />
+        <ReportPath label="Full Markdown" path={snapshot.fullMarkdownPath} />
       </div>
       <div className="report-actions snapshot-actions">
         <button type="button" className="secondary compact" onClick={() => runAction('Open snapshot Markdown', () => openMarkdownReport({ path: snapshot.markdownPath }))}>
           Open Markdown
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Open snapshot full Markdown', () => openMarkdownReport({ path: snapshot.fullMarkdownPath }))}>
+          Open full Markdown
         </button>
         <button type="button" className="secondary compact" onClick={() => runAction('Open snapshot JSON', () => openJSONReport({ path: snapshot.jsonPath }))}>
           Open JSON

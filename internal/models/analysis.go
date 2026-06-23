@@ -153,6 +153,20 @@ type RouteChain struct {
 	Summary string   `json:"summary,omitempty"`
 }
 
+type SymbolIndex struct {
+	Files []FileSymbols `json:"files,omitempty"`
+}
+
+type FileSymbols struct {
+	Path    string           `json:"path"`
+	Symbols []ExportedSymbol `json:"symbols,omitempty"`
+}
+
+type ExportedSymbol struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
 type DependencyGraph struct {
 	Nodes             []DependencyNode       `json:"nodes,omitempty"`
 	Edges             []DependencyEdge       `json:"edges,omitempty"`
@@ -218,6 +232,7 @@ type Analysis struct {
 	Context      ProjectContext     `json:"projectContext"`
 	Structure    StructureMap       `json:"structureMap"`
 	Features     FeatureMap         `json:"featureMap"`
+	Symbols      SymbolIndex        `json:"symbolIndex"`
 	Dependencies DependencyGraph    `json:"dependencyGraph"`
 	Env          EnvAnalysis        `json:"env"`
 	Routes       []RouteInfo        `json:"routes"`

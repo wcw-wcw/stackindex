@@ -13,13 +13,14 @@ import (
 )
 
 type Snapshot struct {
-	Timestamp    string
-	Directory    string
-	JSONPath     string
-	MarkdownPath string
-	AuditStatus  string
-	AIStatus     string
-	GeneratedAt  time.Time
+	Timestamp        string
+	Directory        string
+	JSONPath         string
+	MarkdownPath     string
+	FullMarkdownPath string
+	AuditStatus      string
+	AIStatus         string
+	GeneratedAt      time.Time
 }
 
 var snapshotNow = time.Now
@@ -36,17 +37,22 @@ func WriteSnapshot(root string) (*Snapshot, error) {
 	}
 	jsonPath := filepath.Join(snapshotDir, "analysis.json")
 	markdownPath := filepath.Join(snapshotDir, "repo-index.md")
+	fullMarkdownPath := filepath.Join(snapshotDir, "repo-index.full.md")
 	if err := copyFile(filepath.Join(root, ".stackindex", "analysis.json"), jsonPath); err != nil {
 		return nil, err
 	}
 	if err := copyFile(filepath.Join(root, ".stackindex", "reports", "repo-index.md"), markdownPath); err != nil {
 		return nil, err
 	}
+	if err := copyFile(filepath.Join(root, ".stackindex", "reports", "repo-index.full.md"), fullMarkdownPath); err != nil {
+		return nil, err
+	}
 	return &Snapshot{
-		Timestamp:    snapshotName,
-		Directory:    snapshotDir,
-		JSONPath:     jsonPath,
-		MarkdownPath: markdownPath,
+		Timestamp:        snapshotName,
+		Directory:        snapshotDir,
+		JSONPath:         jsonPath,
+		MarkdownPath:     markdownPath,
+		FullMarkdownPath: fullMarkdownPath,
 	}, nil
 }
 
@@ -67,12 +73,13 @@ func ListSnapshots(root string) ([]Snapshot, error) {
 		name := entry.Name()
 		dir := filepath.Join(historyDir, name)
 		snapshot := Snapshot{
-			Timestamp:    name,
-			Directory:    dir,
-			JSONPath:     filepath.Join(dir, "analysis.json"),
-			MarkdownPath: filepath.Join(dir, "repo-index.md"),
-			AuditStatus:  "unknown",
-			AIStatus:     "unknown",
+			Timestamp:        name,
+			Directory:        dir,
+			JSONPath:         filepath.Join(dir, "analysis.json"),
+			MarkdownPath:     filepath.Join(dir, "repo-index.md"),
+			FullMarkdownPath: filepath.Join(dir, "repo-index.full.md"),
+			AuditStatus:      "unknown",
+			AIStatus:         "unknown",
 		}
 		enrichSnapshotFromAnalysis(&snapshot)
 		snapshots = append(snapshots, snapshot)

@@ -15,7 +15,10 @@ func WriteMarkdown(root string, analysis *models.Analysis) error {
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(outDir, "repo-index.md"), []byte(Markdown(analysis)), 0644)
+	if err := os.WriteFile(filepath.Join(outDir, "repo-index.md"), []byte(Markdown(analysis)), 0644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(outDir, "repo-index.full.md"), []byte(FullMarkdown(analysis)), 0644)
 }
 
 func ExportAll(root string, analysis *models.Analysis) error {
@@ -33,10 +36,26 @@ func ExportAll(root string, analysis *models.Analysis) error {
 }
 
 func Markdown(a *models.Analysis) string {
+	return markdown(a, false)
+}
+
+func FullMarkdown(a *models.Analysis) string {
+	return markdown(a, true)
+}
+
+func markdown(a *models.Analysis, full bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# StackIndex Repo Index\n\n")
+	if full {
+		fmt.Fprintf(&b, "# StackIndex Full Repo Index\n\n")
+	} else {
+		fmt.Fprintf(&b, "# StackIndex Repo Index\n\n")
+	}
 	fmt.Fprintf(&b, "Generated: %s\n\n", a.GeneratedAt.Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(&b, "This file is an agent-facing map of the repository. Read it before broad file searches so follow-up exploration can stay targeted.\n\n")
+	if full {
+		fmt.Fprintf(&b, "This is the verbose companion to `repo-index.md`. Use it when the compact search plan is not enough.\n\n")
+	} else {
+		fmt.Fprintf(&b, "This compact file is an agent-facing search plan. Read it before broad file searches so follow-up exploration can stay targeted. Open `repo-index.full.md` only when you need verbose routes, env vars, scripts, findings, or file counts.\n\n")
+	}
 
 	fmt.Fprintf(&b, "## Repository Snapshot\n\n")
 	fmt.Fprintf(&b, "- Repository: `%s`\n- Path: `%s`\n- Files indexed: %d\n- Finding summary: %s\n\n", a.RepoName, a.RepoPath, len(a.Files), findingSummary(a.Findings))
@@ -67,79 +86,11 @@ func Markdown(a *models.Analysis) string {
 	writeProjectStructure(&b, a)
 	writeKeyFiles(&b, a)
 	writeFileConnections(&b, a)
+	writeImportantExports(&b, a)
 	writeArchitectureHints(&b, a)
 
-	fmt.Fprintf(&b, "## File Overview\n\n")
-	for _, line := range fileOverview(a.Files) {
-		fmt.Fprintf(&b, "- %s\n", line)
-	}
-	fmt.Fprintln(&b)
-
-	fmt.Fprintf(&b, "## Package Scripts\n\n")
-	if a.PackageInfo == nil || len(a.PackageInfo.Scripts) == 0 {
-		fmt.Fprintln(&b, "No package scripts detected.")
-		fmt.Fprintln(&b)
-	} else {
-		for _, name := range sortedKeys(a.PackageInfo.Scripts) {
-			fmt.Fprintf(&b, "- `%s`: `%s`\n", name, a.PackageInfo.Scripts[name])
-		}
-		fmt.Fprintln(&b)
-	}
-
-	fmt.Fprintf(&b, "## Environment Variables\n\n")
-	if !a.Env.UsesEnvVars {
-		fmt.Fprintln(&b, "No environment variable usage detected.")
-		fmt.Fprintln(&b)
-	} else {
-		fmt.Fprintf(&b, "- `.env.example`: %s\n", present(a.Env.ExampleFile != ""))
-		fmt.Fprintln(&b)
-		writeEnvGroup(&b, "Required app config", a.Env.UsedVars, "required_app_config")
-		writeEnvGroup(&b, "Optional app config", a.Env.UsedVars, "optional_app_config")
-		writeEnvGroup(&b, "Platform/build metadata", a.Env.UsedVars, "platform_provided", "build_metadata")
-		writeEnvGroup(&b, "Script-only vars", a.Env.UsedVars, "test_or_script_only")
-		writeNameList(&b, "Missing required from .env.example", a.Env.MissingRequiredFromExample)
-		fmt.Fprintln(&b)
-	}
-
-	fmt.Fprintf(&b, "## API Routes\n\n")
-	if len(a.Routes) == 0 {
-		fmt.Fprintln(&b, "No API routes detected.")
-		fmt.Fprintln(&b)
-	} else {
-		for _, route := range a.Routes {
-			note := ""
-			if route.Note != "" {
-				note = "; " + route.Note
-			}
-			fmt.Fprintf(&b, "- `%s %s` in `%s` (%s confidence%s)\n", route.Method, route.Path, route.SourceFile, route.Confidence, note)
-		}
-		fmt.Fprintln(&b)
-	}
-
-	fmt.Fprintf(&b, "## Tests\n\n")
-	fmt.Fprintf(&b, "- Test files: %s\n- Test script: %s\n", present(a.Tests.HasTestFiles), present(a.Tests.HasTestScript))
-	writeList(&b, "Frameworks", a.Tests.Frameworks)
-	fmt.Fprintln(&b)
-
-	fmt.Fprintf(&b, "## Deployment Readiness\n\n")
-	fmt.Fprintf(&b, "- README: %s\n- `.env.example`: %s\n- Dockerfile: %s\n- Vercel config: %s\n- Health endpoint: %s\n- Migration files: %s\n\n", present(a.Deployment.HasReadme), present(a.Deployment.HasEnvExample), present(a.Deployment.HasDockerfile), present(a.Deployment.HasVercelConfig), present(a.Deployment.HasHealthEndpoint), present(a.Deployment.HasMigrationFiles))
-
-	fmt.Fprintf(&b, "## Findings\n\n")
-	if len(a.Findings) == 0 {
-		fmt.Fprintln(&b, "No findings. Nice and quiet.")
-		fmt.Fprintln(&b)
-	} else {
-		for _, f := range a.Findings {
-			file := ""
-			if f.File != "" {
-				file = fmt.Sprintf(" (`%s`)", f.File)
-			}
-			fmt.Fprintf(&b, "- **%s / %s**: %s%s\n", f.Severity, f.Category, f.Message, file)
-			if f.Recommendation != "" {
-				fmt.Fprintf(&b, "  Recommendation: %s\n", f.Recommendation)
-			}
-		}
-		fmt.Fprintln(&b)
+	if full {
+		writeFullOperationalDetails(&b, a)
 	}
 
 	fmt.Fprintf(&b, "## Recommended Next Steps\n\n")
@@ -438,6 +389,20 @@ func writeFileConnections(b *strings.Builder, a *models.Analysis) {
 	fmt.Fprintln(b)
 }
 
+func writeImportantExports(b *strings.Builder, a *models.Analysis) {
+	if len(a.Symbols.Files) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "## Important Exports\n\n")
+	for _, file := range capFileSymbols(a.Symbols.Files, 12) {
+		fmt.Fprintf(b, "- `%s`\n", file.Path)
+		for _, symbol := range capSymbols(file.Symbols, 8) {
+			fmt.Fprintf(b, "  - `%s` (%s)\n", symbol.Name, symbol.Kind)
+		}
+	}
+	fmt.Fprintln(b)
+}
+
 func writeArchitectureHints(b *strings.Builder, a *models.Analysis) {
 	if len(a.Dependencies.ArchitectureHints) == 0 {
 		return
@@ -447,6 +412,81 @@ func writeArchitectureHints(b *strings.Builder, a *models.Analysis) {
 		fmt.Fprintf(b, "- %s\n", hint)
 	}
 	fmt.Fprintln(b)
+}
+
+func writeFullOperationalDetails(b *strings.Builder, a *models.Analysis) {
+	fmt.Fprintf(b, "## File Overview\n\n")
+	for _, line := range fileOverview(a.Files) {
+		fmt.Fprintf(b, "- %s\n", line)
+	}
+	fmt.Fprintln(b)
+
+	fmt.Fprintf(b, "## Package Scripts\n\n")
+	if a.PackageInfo == nil || len(a.PackageInfo.Scripts) == 0 {
+		fmt.Fprintln(b, "No package scripts detected.")
+		fmt.Fprintln(b)
+	} else {
+		for _, name := range sortedKeys(a.PackageInfo.Scripts) {
+			fmt.Fprintf(b, "- `%s`: `%s`\n", name, a.PackageInfo.Scripts[name])
+		}
+		fmt.Fprintln(b)
+	}
+
+	fmt.Fprintf(b, "## Environment Variables\n\n")
+	if !a.Env.UsesEnvVars {
+		fmt.Fprintln(b, "No environment variable usage detected.")
+		fmt.Fprintln(b)
+	} else {
+		fmt.Fprintf(b, "- `.env.example`: %s\n", present(a.Env.ExampleFile != ""))
+		fmt.Fprintln(b)
+		writeEnvGroup(b, "Required app config", a.Env.UsedVars, "required_app_config")
+		writeEnvGroup(b, "Optional app config", a.Env.UsedVars, "optional_app_config")
+		writeEnvGroup(b, "Platform/build metadata", a.Env.UsedVars, "platform_provided", "build_metadata")
+		writeEnvGroup(b, "Script-only vars", a.Env.UsedVars, "test_or_script_only")
+		writeNameList(b, "Missing required from .env.example", a.Env.MissingRequiredFromExample)
+		fmt.Fprintln(b)
+	}
+
+	fmt.Fprintf(b, "## API Routes\n\n")
+	if len(a.Routes) == 0 {
+		fmt.Fprintln(b, "No API routes detected.")
+		fmt.Fprintln(b)
+	} else {
+		for _, route := range a.Routes {
+			note := ""
+			if route.Note != "" {
+				note = "; " + route.Note
+			}
+			fmt.Fprintf(b, "- `%s %s` in `%s` (%s confidence%s)\n", route.Method, route.Path, route.SourceFile, route.Confidence, note)
+		}
+		fmt.Fprintln(b)
+	}
+
+	fmt.Fprintf(b, "## Tests\n\n")
+	fmt.Fprintf(b, "- Test files: %s\n- Test script: %s\n", present(a.Tests.HasTestFiles), present(a.Tests.HasTestScript))
+	writeList(b, "Frameworks", a.Tests.Frameworks)
+	fmt.Fprintln(b)
+
+	fmt.Fprintf(b, "## Deployment Readiness\n\n")
+	fmt.Fprintf(b, "- README: %s\n- `.env.example`: %s\n- Dockerfile: %s\n- Vercel config: %s\n- Health endpoint: %s\n- Migration files: %s\n\n", present(a.Deployment.HasReadme), present(a.Deployment.HasEnvExample), present(a.Deployment.HasDockerfile), present(a.Deployment.HasVercelConfig), present(a.Deployment.HasHealthEndpoint), present(a.Deployment.HasMigrationFiles))
+
+	fmt.Fprintf(b, "## Findings\n\n")
+	if len(a.Findings) == 0 {
+		fmt.Fprintln(b, "No findings. Nice and quiet.")
+		fmt.Fprintln(b)
+	} else {
+		for _, f := range a.Findings {
+			file := ""
+			if f.File != "" {
+				file = fmt.Sprintf(" (`%s`)", f.File)
+			}
+			fmt.Fprintf(b, "- **%s / %s**: %s%s\n", f.Severity, f.Category, f.Message, file)
+			if f.Recommendation != "" {
+				fmt.Fprintf(b, "  Recommendation: %s\n", f.Recommendation)
+			}
+		}
+		fmt.Fprintln(b)
+	}
 }
 
 func connectionCounts(file models.ConnectedFileSummary) string {
@@ -764,6 +804,20 @@ func writeNameList(b *strings.Builder, label string, names []string) {
 		return
 	}
 	fmt.Fprintf(b, "- %s: `%s`\n", label, strings.Join(names, "`, `"))
+}
+
+func capFileSymbols(in []models.FileSymbols, limit int) []models.FileSymbols {
+	if len(in) <= limit {
+		return in
+	}
+	return in[:limit]
+}
+
+func capSymbols(in []models.ExportedSymbol, limit int) []models.ExportedSymbol {
+	if len(in) <= limit {
+		return in
+	}
+	return in[:limit]
 }
 
 func writeChangeSummary(b *strings.Builder, a *models.Analysis) {

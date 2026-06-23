@@ -39,6 +39,9 @@ export async function POST() { return Response.json({ ok: RuleSchema && saveRule
 	if !hasRouteChainFile(analysis.Features.RouteChains, "POST /api/rules", "src/lib/rules/schema.ts") {
 		t.Fatalf("expected route chain to include schema source: %#v", analysis.Features.RouteChains)
 	}
+	if !hasExportedSymbol(analysis.Symbols.Files, "src/lib/rules/schema.ts", "RuleSchema") {
+		t.Fatalf("expected symbol index to include RuleSchema: %#v", analysis.Symbols.Files)
+	}
 }
 
 func hasAnalyzedPath(files []models.FileInfo, path string) bool {
@@ -71,6 +74,20 @@ func hasRouteChainFile(chains []models.RouteChain, route, path string) bool {
 		}
 		for _, item := range chain.Files {
 			if item == path {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasExportedSymbol(files []models.FileSymbols, path, name string) bool {
+	for _, file := range files {
+		if file.Path != path {
+			continue
+		}
+		for _, symbol := range file.Symbols {
+			if symbol.Name == name {
 				return true
 			}
 		}

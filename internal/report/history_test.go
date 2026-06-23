@@ -23,8 +23,10 @@ func TestExportAllCreatesSnapshotAndKeepsLatestReports(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join(root, ".stackindex", "analysis.json"),
 		filepath.Join(root, ".stackindex", "reports", "repo-index.md"),
+		filepath.Join(root, ".stackindex", "reports", "repo-index.full.md"),
 		filepath.Join(root, ".stackindex", "history", "20260616-123456", "analysis.json"),
 		filepath.Join(root, ".stackindex", "history", "20260616-123456", "repo-index.md"),
+		filepath.Join(root, ".stackindex", "history", "20260616-123456", "repo-index.full.md"),
 	} {
 		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
 			t.Fatalf("expected written report at %s: info=%#v err=%v", path, info, err)
@@ -114,6 +116,9 @@ func writeSnapshotFixture(t *testing.T, root, timestamp string, analysis *models
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "repo-index.md"), []byte("# report\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "repo-index.full.md"), []byte("# full report\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 }

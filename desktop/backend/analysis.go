@@ -122,21 +122,23 @@ type AIView struct {
 }
 
 type ReportsView struct {
-	JSONPath     string         `json:"jsonPath"`
-	MarkdownPath string         `json:"markdownPath"`
-	Directory    string         `json:"directory"`
-	History      []SnapshotView `json:"history"`
-	Changes      ChangeView     `json:"changes"`
+	JSONPath         string         `json:"jsonPath"`
+	MarkdownPath     string         `json:"markdownPath"`
+	FullMarkdownPath string         `json:"fullMarkdownPath"`
+	Directory        string         `json:"directory"`
+	History          []SnapshotView `json:"history"`
+	Changes          ChangeView     `json:"changes"`
 }
 
 type SnapshotView struct {
-	Timestamp    string `json:"timestamp"`
-	Directory    string `json:"directory"`
-	JSONPath     string `json:"jsonPath"`
-	MarkdownPath string `json:"markdownPath"`
-	AuditStatus  string `json:"auditStatus"`
-	AIStatus     string `json:"aiStatus"`
-	GeneratedAt  string `json:"generatedAt,omitempty"`
+	Timestamp        string `json:"timestamp"`
+	Directory        string `json:"directory"`
+	JSONPath         string `json:"jsonPath"`
+	MarkdownPath     string `json:"markdownPath"`
+	FullMarkdownPath string `json:"fullMarkdownPath"`
+	AuditStatus      string `json:"auditStatus"`
+	AIStatus         string `json:"aiStatus"`
+	GeneratedAt      string `json:"generatedAt,omitempty"`
 }
 
 type ChangeView struct {
@@ -356,11 +358,12 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 		AI:             AIView{Status: "not requested", DeterministicSummary: stackindexreport.DeterministicAISummary(analysis)},
 	}
 	response.Reports = ReportsView{
-		JSONPath:     response.JSONReportPath,
-		MarkdownPath: response.MDReportPath,
-		Directory:    filepath.Join(root, ".stackindex"),
-		History:      buildSnapshotViews(root),
-		Changes:      buildChangeView(analysis.Changes),
+		JSONPath:         response.JSONReportPath,
+		MarkdownPath:     response.MDReportPath,
+		FullMarkdownPath: filepath.Join(root, ".stackindex", "reports", "repo-index.full.md"),
+		Directory:        filepath.Join(root, ".stackindex"),
+		History:          buildSnapshotViews(root),
+		Changes:          buildChangeView(analysis.Changes),
 	}
 	if request.RunAudit {
 		response.AuditStatus = "not run"
@@ -425,13 +428,14 @@ func buildSnapshotViews(root string) []SnapshotView {
 	views := make([]SnapshotView, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		views = append(views, SnapshotView{
-			Timestamp:    snapshot.Timestamp,
-			Directory:    snapshot.Directory,
-			JSONPath:     snapshot.JSONPath,
-			MarkdownPath: snapshot.MarkdownPath,
-			AuditStatus:  snapshot.AuditStatus,
-			AIStatus:     snapshot.AIStatus,
-			GeneratedAt:  formatAnalysisTime(snapshot.GeneratedAt),
+			Timestamp:        snapshot.Timestamp,
+			Directory:        snapshot.Directory,
+			JSONPath:         snapshot.JSONPath,
+			MarkdownPath:     snapshot.MarkdownPath,
+			FullMarkdownPath: snapshot.FullMarkdownPath,
+			AuditStatus:      snapshot.AuditStatus,
+			AIStatus:         snapshot.AIStatus,
+			GeneratedAt:      formatAnalysisTime(snapshot.GeneratedAt),
 		})
 	}
 	return views
