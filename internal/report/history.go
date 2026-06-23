@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 type Snapshot struct {
@@ -25,7 +25,7 @@ type Snapshot struct {
 var snapshotNow = time.Now
 
 func WriteSnapshot(root string) (*Snapshot, error) {
-	historyDir := filepath.Join(root, ".stackmap", "history")
+	historyDir := filepath.Join(root, ".stackindex", "history")
 	if err := os.MkdirAll(historyDir, 0755); err != nil {
 		return nil, err
 	}
@@ -35,11 +35,11 @@ func WriteSnapshot(root string) (*Snapshot, error) {
 		return nil, err
 	}
 	jsonPath := filepath.Join(snapshotDir, "analysis.json")
-	markdownPath := filepath.Join(snapshotDir, "repo-report.md")
-	if err := copyFile(filepath.Join(root, ".stackmap", "analysis.json"), jsonPath); err != nil {
+	markdownPath := filepath.Join(snapshotDir, "repo-index.md")
+	if err := copyFile(filepath.Join(root, ".stackindex", "analysis.json"), jsonPath); err != nil {
 		return nil, err
 	}
-	if err := copyFile(filepath.Join(root, ".stackmap", "reports", "repo-report.md"), markdownPath); err != nil {
+	if err := copyFile(filepath.Join(root, ".stackindex", "reports", "repo-index.md"), markdownPath); err != nil {
 		return nil, err
 	}
 	return &Snapshot{
@@ -51,7 +51,7 @@ func WriteSnapshot(root string) (*Snapshot, error) {
 }
 
 func ListSnapshots(root string) ([]Snapshot, error) {
-	historyDir := filepath.Join(root, ".stackmap", "history")
+	historyDir := filepath.Join(root, ".stackindex", "history")
 	entries, err := os.ReadDir(historyDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -70,7 +70,7 @@ func ListSnapshots(root string) ([]Snapshot, error) {
 			Timestamp:    name,
 			Directory:    dir,
 			JSONPath:     filepath.Join(dir, "analysis.json"),
-			MarkdownPath: filepath.Join(dir, "repo-report.md"),
+			MarkdownPath: filepath.Join(dir, "repo-index.md"),
 			AuditStatus:  "unknown",
 			AIStatus:     "unknown",
 		}

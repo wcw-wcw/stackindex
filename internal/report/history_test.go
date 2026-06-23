@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestExportAllCreatesSnapshotAndKeepsLatestReports(t *testing.T) {
@@ -21,10 +21,10 @@ func TestExportAllCreatesSnapshotAndKeepsLatestReports(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		filepath.Join(root, ".stackmap", "analysis.json"),
-		filepath.Join(root, ".stackmap", "reports", "repo-report.md"),
-		filepath.Join(root, ".stackmap", "history", "20260616-123456", "analysis.json"),
-		filepath.Join(root, ".stackmap", "history", "20260616-123456", "repo-report.md"),
+		filepath.Join(root, ".stackindex", "analysis.json"),
+		filepath.Join(root, ".stackindex", "reports", "repo-index.md"),
+		filepath.Join(root, ".stackindex", "history", "20260616-123456", "analysis.json"),
+		filepath.Join(root, ".stackindex", "history", "20260616-123456", "repo-index.md"),
 	} {
 		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
 			t.Fatalf("expected written report at %s: info=%#v err=%v", path, info, err)
@@ -41,7 +41,7 @@ func TestWriteSnapshotDoesNotOverwriteTimestampCollision(t *testing.T) {
 	if err := ExportAll(root, analysis); err != nil {
 		t.Fatal(err)
 	}
-	firstMarker := filepath.Join(root, ".stackmap", "history", "20260616-123456", "marker.txt")
+	firstMarker := filepath.Join(root, ".stackindex", "history", "20260616-123456", "marker.txt")
 	if err := os.WriteFile(firstMarker, []byte("keep"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestWriteSnapshotDoesNotOverwriteTimestampCollision(t *testing.T) {
 	if _, err := os.Stat(firstMarker); err != nil {
 		t.Fatalf("first snapshot was overwritten: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".stackmap", "history", "20260616-123456-1", "analysis.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ".stackindex", "history", "20260616-123456-1", "analysis.json")); err != nil {
 		t.Fatalf("expected collision snapshot: %v", err)
 	}
 }
@@ -102,7 +102,7 @@ func withSnapshotNow(t *testing.T, value time.Time) {
 
 func writeSnapshotFixture(t *testing.T, root, timestamp string, analysis *models.Analysis) {
 	t.Helper()
-	dir := filepath.Join(root, ".stackmap", "history", timestamp)
+	dir := filepath.Join(root, ".stackindex", "history", timestamp)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func writeSnapshotFixture(t *testing.T, root, timestamp string, analysis *models
 	if err := os.WriteFile(filepath.Join(dir, "analysis.json"), data, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "repo-report.md"), []byte("# report\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "repo-index.md"), []byte("# report\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 }

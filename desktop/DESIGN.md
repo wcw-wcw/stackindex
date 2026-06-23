@@ -1,15 +1,15 @@
-# StackMap Desktop Design
+# StackIndex Desktop Design
 
 ## Goal
 
-StackMap desktop should feel like the current terminal TUI translated into a standalone app. It is an operational report workspace first: dense, local-first, readable, and quiet.
+StackIndex desktop should feel like the current terminal TUI translated into a standalone app. It is an operational report workspace first: dense, local-first, readable, and quiet.
 
 ## Visual Rules
 
 - Use flat charcoal backgrounds with slightly varied dark panels.
 - Keep monospace-first typography.
 - Use simple borders instead of shadows, glow, or glossy surfaces.
-- Use cyan for StackMap/title accents.
+- Use cyan for StackIndex/title accents.
 - Use muted gray for metadata and inactive navigation.
 - Use green for success, amber for warnings, red for high severity, and purple for the active TUI-style selection row.
 - Keep spacing compact. Report screens should feel dense but readable.
@@ -22,7 +22,7 @@ StackMap desktop should feel like the current terminal TUI translated into a sta
 - Glossy cards, floating SaaS dashboards, and heavy shadows.
 - Bright white or light-mode surfaces.
 - Excessive rounded pills or badge overload.
-- Visual patterns copied from StackMap-adjacent projects.
+- Visual patterns copied from StackIndex-adjacent projects.
 
 ## Component Rules
 

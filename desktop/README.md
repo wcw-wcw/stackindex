@@ -1,11 +1,11 @@
-# StackMap Desktop
+# StackIndex Desktop
 
-This folder is the Wails v2 desktop app for StackMap.
+This folder is the Wails v2 desktop app for StackIndex.
 
 It is a separate Go module so root CLI/TUI development and `go test ./...` are not affected by Wails dependencies. The desktop backend imports the parent module through:
 
 ```go
-replace github.com/will/stackmap => ..
+replace github.com/wcw-wcw/stackindex => ..
 ```
 
 ## Setup
@@ -34,14 +34,14 @@ wails build
 In Codex's managed sandbox, Wails may fail while generating bindings or compiling the application because Go defaults to `/Users/will/Library/Caches/go-build`, which is outside the writable workspace. Use a workspace-local cache for sandboxed test/build commands:
 
 ```sh
-GOCACHE=/Users/will/Workspace/stackmap/.gocache go test ./...
+GOCACHE=/Users/will/Workspace/stackindex/.gocache go test ./...
 ```
 
 If Wails reports only `ERROR exit status 1` at `Compiling application` inside the sandbox, compare it with the command Wails prints under `-v 2`:
 
 ```sh
-GOCACHE=/Users/will/Workspace/stackmap/.gocache /Users/will/go/bin/wails build -v 2
-GOCACHE=/Users/will/Workspace/stackmap/.gocache go build -buildvcs=false -tags desktop,wv2runtime.download,production -ldflags "-w -s" -o build/bin/StackMap
+GOCACHE=/Users/will/Workspace/stackindex/.gocache /Users/will/go/bin/wails build -v 2
+GOCACHE=/Users/will/Workspace/stackindex/.gocache go build -buildvcs=false -tags desktop,wv2runtime.download,production -ldflags "-w -s" -o build/bin/StackIndex
 ```
 
 Codex's managed sandbox may still fail native Wails builds because of system cache or macOS build restrictions. Manual validation command:
@@ -60,7 +60,7 @@ STACKMAP_DESKTOP_ANALYZE_PATH=/Users/will/Workspace/stkapp go test ./backend -ru
 
 ## Design Direction
 
-See [DESIGN.md](./DESIGN.md). The desktop UI should stay close to the Bubble Tea TUI: flat charcoal backgrounds, terminal-style panes, monospace typography, compact report density, cyan StackMap accents, muted metadata, purple selected sidebar rows with a `>` marker, and direct severity colors. Future polish should improve clarity without drifting into a generic SaaS dashboard, portfolio site, or stock-app visual language.
+See [DESIGN.md](./DESIGN.md). The desktop UI should stay close to the Bubble Tea TUI: flat charcoal backgrounds, terminal-style panes, monospace typography, compact report density, cyan StackIndex accents, muted metadata, purple selected sidebar rows with a `>` marker, and direct severity colors. Future polish should improve clarity without drifting into a generic SaaS dashboard, portfolio site, or stock-app visual language.
 
 ## Current Scope
 
@@ -69,13 +69,13 @@ Implemented:
 - enter or browse for a local project path
 - paste a public GitHub repository URL and analyze a local cached clone
 - optional deterministic audit
-- optional local Ollama-backed AI summary using StackMap's existing fallback behavior
+- optional local Ollama-backed AI summary using StackIndex's existing fallback behavior
 - analyze through `internal/app.Analyze`
 - export reports through `internal/app.ExportReports`
 - show a clickable report workspace with overview, audit, context, routes, tests, Ask, AI notes, reports, snapshot history, and change summaries
 - reports tab actions for copying paths, opening JSON/Markdown, and revealing folders
-- recent projects and previous report loading through `.stackmap/analysis.json`
-- local snapshot history under `.stackmap/history/<timestamp>/`
+- recent projects and previous report loading through `.stackindex/analysis.json`
+- local snapshot history under `.stackindex/history/<timestamp>/`
 - same-repo change summaries against the most recent previous snapshot
 - settings for local defaults and cache paths
 - GitHub cache and recent-project clearing
@@ -93,7 +93,7 @@ Intentionally not implemented yet:
 
 ## GitHub URL Support
 
-The GitHub source mode is a local-first MVP for public repositories only. StackMap accepts these URL forms:
+The GitHub source mode is a local-first MVP for public repositories only. StackIndex accepts these URL forms:
 
 ```text
 https://github.com/owner/repo
@@ -103,27 +103,27 @@ https://github.com/owner/repo.git
 The desktop backend normalizes either form to `https://github.com/owner/repo.git`, clones with the local `git` binary, and then analyzes the local clone through the same `internal/app.Analyze` flow used for local folders. Reports are written inside the cached clone at:
 
 ```text
-<cached repo>/.stackmap/analysis.json
-<cached repo>/.stackmap/reports/repo-report.md
-<cached repo>/.stackmap/history/<timestamp>/analysis.json
-<cached repo>/.stackmap/history/<timestamp>/repo-report.md
-<cached repo>/.stackmap/qa/latest-question.json
-<cached repo>/.stackmap/qa/history.jsonl
+<cached repo>/.stackindex/analysis.json
+<cached repo>/.stackindex/reports/repo-index.md
+<cached repo>/.stackindex/history/<timestamp>/analysis.json
+<cached repo>/.stackindex/history/<timestamp>/repo-index.md
+<cached repo>/.stackindex/qa/latest-question.json
+<cached repo>/.stackindex/qa/history.jsonl
 ```
 
 Repositories are cached under the OS user cache directory:
 
 ```text
-os.UserCacheDir()/StackMap/repos/github.com/<owner>/<repo>
+os.UserCacheDir()/StackIndex/repos/github.com/<owner>/<repo>
 ```
 
 On macOS this is typically:
 
 ```text
-~/Library/Caches/StackMap/repos/github.com/<owner>/<repo>
+~/Library/Caches/StackIndex/repos/github.com/<owner>/<repo>
 ```
 
-Use "Refresh cached clone before analysis" to update an existing cached public GitHub clone before analysis. If the cache is missing, StackMap clones as usual.
+Use "Refresh cached clone before analysis" to update an existing cached public GitHub clone before analysis. If the cache is missing, StackIndex clones as usual.
 
 Current GitHub limitations:
 
@@ -141,17 +141,17 @@ Current GitHub limitations:
 The desktop app uses the same local report files as the CLI:
 
 ```text
-.stackmap/analysis.json
-.stackmap/reports/repo-report.md
-.stackmap/history/<timestamp>/analysis.json
-.stackmap/history/<timestamp>/repo-report.md
-.stackmap/qa/latest-question.json
-.stackmap/qa/history.jsonl
+.stackindex/analysis.json
+.stackindex/reports/repo-index.md
+.stackindex/history/<timestamp>/analysis.json
+.stackindex/history/<timestamp>/repo-index.md
+.stackindex/qa/latest-question.json
+.stackindex/qa/history.jsonl
 ```
 
-Open Existing Report reads `.stackmap/analysis.json` without rerunning analysis or creating a new snapshot. New local or public-GitHub analyses write the latest report files and create a timestamped snapshot. The Reports tab lists recent snapshots and shows a deterministic same-repo change summary when at least one previous snapshot exists.
+Open Existing Report reads `.stackindex/analysis.json` without rerunning analysis or creating a new snapshot. New local or public-GitHub analyses write the latest report files and create a timestamped snapshot. The Reports tab lists recent snapshots and shows a deterministic same-repo change summary when at least one previous snapshot exists.
 
-Ask uses deterministic StackMap evidence by default. Supported examples include:
+Ask uses deterministic StackIndex evidence by default. Supported examples include:
 
 ```text
 Where is auth handled?

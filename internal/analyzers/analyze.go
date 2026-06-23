@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/will/stackmap/internal/models"
-	"github.com/will/stackmap/internal/scanner"
+	"github.com/wcw-wcw/stackindex/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/scanner"
 )
 
 func Analyze(root string) (*models.Analysis, error) {

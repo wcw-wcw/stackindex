@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestMarshalJSONIncludesProjectContextAndStructureMap(t *testing.T) {
@@ -19,9 +19,9 @@ func TestMarshalJSONIncludesProjectContextAndStructureMap(t *testing.T) {
 			KeyFiles:    []models.FileRole{{Path: "go.mod", Role: "Go module definition", Importance: "high"}},
 		},
 		Dependencies: models.DependencyGraph{
-			Entrypoints:       []string{"cmd/stackmap/main.go"},
+			Entrypoints:       []string{"cmd/stackindex/main.go"},
 			ArchitectureHints: []string{"CLI entrypoints connect to internal analyzer packages."},
-			TopConnectedFiles: []models.ConnectedFileSummary{{Path: "cmd/stackmap/main.go", Role: "Main CLI entrypoint", ImportsCount: 1}},
+			TopConnectedFiles: []models.ConnectedFileSummary{{Path: "cmd/stackindex/main.go", Role: "Main CLI entrypoint", ImportsCount: 1}},
 		},
 	})
 	if err != nil {

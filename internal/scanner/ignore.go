@@ -12,7 +12,8 @@ var ignoredDirs = map[string]bool{
 	"build":        true,
 	".next":        true,
 	"coverage":     true,
-	".stackmap":    true,
+	".stackindex":  true,
+	".gocache":     true,
 	"vendor":       true,
 }
 

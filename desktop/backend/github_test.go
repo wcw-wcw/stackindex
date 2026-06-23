@@ -21,7 +21,7 @@ func TestParseGitHubRepoURLValidWithoutGit(t *testing.T) {
 	if repo.CanonicalCloneURL != "https://github.com/owner/repo.git" {
 		t.Fatalf("unexpected clone URL: %s", repo.CanonicalCloneURL)
 	}
-	if !strings.Contains(repo.LocalCachePath, filepath.Join("StackMap", "repos", "github.com", "owner", "repo")) {
+	if !strings.Contains(repo.LocalCachePath, filepath.Join("StackIndex", "repos", "github.com", "owner", "repo")) {
 		t.Fatalf("unexpected cache path: %s", repo.LocalCachePath)
 	}
 }
@@ -92,11 +92,11 @@ func TestParseGitHubRepoURLRejectsPathTraversal(t *testing.T) {
 
 func TestGitHubCachePathFromBase(t *testing.T) {
 	base := t.TempDir()
-	got, err := githubCachePathFromBase(base, "will", "stackmap")
+	got, err := githubCachePathFromBase(base, "will", "stackindex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(base, "StackMap", "repos", "github.com", "will", "stackmap")
+	want := filepath.Join(base, "StackIndex", "repos", "github.com", "will", "stackindex")
 	if got != want {
 		t.Fatalf("cache path = %q, want %q", got, want)
 	}
@@ -144,7 +144,7 @@ func TestEnsureGitHubCloneUsesCachedClone(t *testing.T) {
 }
 
 func TestPrepareGitHubCloneRefreshFalseReusesExistingCache(t *testing.T) {
-	cacheRoot := filepath.Join(t.TempDir(), "StackMap", "repos", "github.com")
+	cacheRoot := filepath.Join(t.TempDir(), "StackIndex", "repos", "github.com")
 	target := filepath.Join(cacheRoot, "owner", "repo")
 	if err := os.MkdirAll(filepath.Join(target, ".git"), 0755); err != nil {
 		t.Fatal(err)
@@ -166,7 +166,7 @@ func TestPrepareGitHubCloneRefreshFalseReusesExistingCache(t *testing.T) {
 }
 
 func TestPrepareGitHubCloneRefreshTrueRunsRefreshCommands(t *testing.T) {
-	cacheRoot := filepath.Join(t.TempDir(), "StackMap", "repos", "github.com")
+	cacheRoot := filepath.Join(t.TempDir(), "StackIndex", "repos", "github.com")
 	target := filepath.Join(cacheRoot, "owner", "repo")
 	if err := os.MkdirAll(filepath.Join(target, ".git"), 0755); err != nil {
 		t.Fatal(err)
@@ -200,7 +200,7 @@ func TestPrepareGitHubCloneRefreshTrueRunsRefreshCommands(t *testing.T) {
 }
 
 func TestPrepareGitHubCloneRefreshRejectsOutsideCacheRoot(t *testing.T) {
-	cacheRoot := filepath.Join(t.TempDir(), "StackMap", "repos", "github.com")
+	cacheRoot := filepath.Join(t.TempDir(), "StackIndex", "repos", "github.com")
 	target := filepath.Join(t.TempDir(), "owner", "repo")
 	if err := os.MkdirAll(filepath.Join(target, ".git"), 0755); err != nil {
 		t.Fatal(err)
@@ -212,13 +212,13 @@ func TestPrepareGitHubCloneRefreshRejectsOutsideCacheRoot(t *testing.T) {
 		CanonicalCloneURL: "https://github.com/owner/repo.git",
 		LocalCachePath:    target,
 	}, true)
-	if err == nil || !strings.Contains(err.Error(), "outside the StackMap GitHub cache root") {
+	if err == nil || !strings.Contains(err.Error(), "outside the StackIndex GitHub cache root") {
 		t.Fatalf("expected outside cache error, got %v", err)
 	}
 }
 
 func TestPrepareGitHubCloneRefreshRejectsMismatchedOrigin(t *testing.T) {
-	cacheRoot := filepath.Join(t.TempDir(), "StackMap", "repos", "github.com")
+	cacheRoot := filepath.Join(t.TempDir(), "StackIndex", "repos", "github.com")
 	target := filepath.Join(cacheRoot, "owner", "repo")
 	if err := os.MkdirAll(filepath.Join(target, ".git"), 0755); err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestPrepareGitHubCloneRefreshRejectsMismatchedOrigin(t *testing.T) {
 }
 
 func TestPrepareGitHubCloneRefreshRejectsNonGitCachedDirectory(t *testing.T) {
-	cacheRoot := filepath.Join(t.TempDir(), "StackMap", "repos", "github.com")
+	cacheRoot := filepath.Join(t.TempDir(), "StackIndex", "repos", "github.com")
 	target := filepath.Join(cacheRoot, "owner", "repo")
 	if err := os.MkdirAll(target, 0755); err != nil {
 		t.Fatal(err)
@@ -258,7 +258,7 @@ func TestPrepareGitHubCloneRefreshRejectsNonGitCachedDirectory(t *testing.T) {
 }
 
 func TestPrepareGitHubCloneRefreshClonesWhenCacheMissing(t *testing.T) {
-	cacheRoot := filepath.Join(t.TempDir(), "StackMap", "repos", "github.com")
+	cacheRoot := filepath.Join(t.TempDir(), "StackIndex", "repos", "github.com")
 	target := filepath.Join(cacheRoot, "owner", "repo")
 	runner := &fakeCommandRunner{}
 	session := &Session{githubCacheRoot: cacheRoot, gitRunner: runner}

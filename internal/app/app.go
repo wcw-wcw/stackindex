@@ -4,12 +4,12 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/will/stackmap/internal/ai"
-	"github.com/will/stackmap/internal/analyzers"
-	"github.com/will/stackmap/internal/audit"
-	"github.com/will/stackmap/internal/models"
-	"github.com/will/stackmap/internal/qa"
-	"github.com/will/stackmap/internal/report"
+	"github.com/wcw-wcw/stackindex/internal/ai"
+	"github.com/wcw-wcw/stackindex/internal/analyzers"
+	"github.com/wcw-wcw/stackindex/internal/audit"
+	"github.com/wcw-wcw/stackindex/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/qa"
+	"github.com/wcw-wcw/stackindex/internal/report"
 )
 
 type AnalyzeOptions struct {
@@ -42,7 +42,7 @@ func Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalyzeResult, error) {
 	if opts.UseAI {
 		aiOpts := ai.SummaryOptions{}
 		if opts.AIDebug {
-			aiOpts.DebugDir = filepath.Join(root, ".stackmap", "ai-debug")
+			aiOpts.DebugDir = filepath.Join(root, ".stackindex", "ai-debug")
 		}
 		analysis.AI = ai.SummarizeWithOptions(ctx, analysis, opts.Model, aiOpts)
 	}
@@ -78,14 +78,14 @@ func Ask(ctx context.Context, analysis *models.Analysis, opts AskOptions) (*mode
 	}
 	qaOpts := qa.Options{UseAI: opts.UseAI, Model: opts.Model}
 	if opts.AIDebug && root != "" {
-		qaOpts.DebugDir = filepath.Join(root, ".stackmap", "ai-debug", "ask")
+		qaOpts.DebugDir = filepath.Join(root, ".stackindex", "ai-debug", "ask")
 	}
 	result := qa.Ask(ctx, analysis, opts.Question, qaOpts)
 	latestErr, historyErr := qa.WriteLatestAndAppendHistory(root, result)
 	if latestErr != nil {
-		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+latestErr.Error())
+		result.Warnings = append(result.Warnings, "could not write .stackindex/qa/latest-question.json: "+latestErr.Error())
 	} else if historyErr != nil {
-		result.Warnings = append(result.Warnings, "could not append .stackmap/qa/history.jsonl: "+historyErr.Error())
+		result.Warnings = append(result.Warnings, "could not append .stackindex/qa/history.jsonl: "+historyErr.Error())
 	}
 	return result, nil
 }

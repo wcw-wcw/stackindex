@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/will/stackmap/internal/ai"
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/ai"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 const (
@@ -67,7 +67,7 @@ func Ask(ctx context.Context, analysis *models.Analysis, question string, opts O
 
 func AnswerDeterministically(analysis *models.Analysis, question string) *models.QAResult {
 	if analysis == nil {
-		return unsupported(question, "No StackMap analysis was available.")
+		return unsupported(question, "No StackIndex analysis was available.")
 	}
 	switch classify(question) {
 	case questionPurpose:
@@ -138,7 +138,7 @@ func classify(question string) questionType {
 func answerPurpose(a *models.Analysis, question string) *models.QAResult {
 	purpose := strings.TrimSpace(a.Context.Purpose)
 	if purpose == "" {
-		purpose = "StackMap could not infer a specific project purpose from the deterministic analysis."
+		purpose = "StackIndex could not infer a specific project purpose from the deterministic analysis."
 	}
 	answer := purpose
 	if a.Context.Confidence != "" {
@@ -197,7 +197,7 @@ func answerStack(a *models.Analysis, question string) *models.QAResult {
 
 func answerRoutes(a *models.Analysis, question string) *models.QAResult {
 	if len(a.Routes) == 0 {
-		return result(question, "No API routes were detected in StackMap's static analysis.", ConfidenceMedium, nil)
+		return result(question, "No API routes were detected in StackIndex's static analysis.", ConfidenceMedium, nil)
 	}
 	groups := routeGroups(a.Routes)
 	answer := fmt.Sprintf("This project exposes %d detected API route%s.", len(a.Routes), pluralS(len(a.Routes)))
@@ -222,7 +222,7 @@ func answerStructure(a *models.Analysis, question string) *models.QAResult {
 	if len(startingFiles) > 0 {
 		fragments = append(fragments, "Read these first: "+joinFileRoles(capFiles(startingFiles, 6))+".")
 	}
-	answer := "StackMap did not identify important folders or files."
+	answer := "StackIndex did not identify important folders or files."
 	if len(fragments) > 0 {
 		answer = strings.Join(fragments, " ")
 	}
@@ -249,7 +249,7 @@ func answerGraph(a *models.Analysis, question string) *models.QAResult {
 		fragments = append(fragments, "Architecture hints: "+strings.Join(capStrings(g.ArchitectureHints, 3), " "))
 	}
 	if len(fragments) == 0 {
-		fragments = append(fragments, fmt.Sprintf("StackMap built a lightweight graph with %d nodes and %d edges, but did not identify standout connected files.", len(g.Nodes), len(g.Edges)))
+		fragments = append(fragments, fmt.Sprintf("StackIndex built a lightweight graph with %d nodes and %d edges, but did not identify standout connected files.", len(g.Nodes), len(g.Edges)))
 	}
 	evidence := []models.QAEvidence{}
 	for _, path := range capStrings(g.Entrypoints, 5) {
@@ -270,7 +270,7 @@ func answerDatabase(a *models.Analysis, question string) *models.QAResult {
 	if len(a.Stack.Databases) > 0 {
 		sentences = append(sentences, "Detected database/storage: "+strings.Join(a.Stack.Databases, ", ")+".")
 	} else {
-		sentences = append(sentences, "StackMap did not detect a named database in the stack.")
+		sentences = append(sentences, "StackIndex did not detect a named database in the stack.")
 	}
 	envNames := databaseEnvNames(a.Env)
 	if len(envNames) > 0 {
@@ -299,7 +299,7 @@ func answerDatabase(a *models.Analysis, question string) *models.QAResult {
 func answerAuth(a *models.Analysis, question string) *models.QAResult {
 	evidence := authEvidence(a)
 	if len(evidence) == 0 {
-		return result(question, "StackMap did not find strong auth/login/protected-route evidence. It is not claiming auth exists from weak signals alone.", ConfidenceMedium, nil)
+		return result(question, "StackIndex did not find strong auth/login/protected-route evidence. It is not claiming auth exists from weak signals alone.", ConfidenceMedium, nil)
 	}
 	var fragments []string
 	routes := authRoutes(a.Routes)
@@ -315,7 +315,7 @@ func answerAuth(a *models.Analysis, question string) *models.QAResult {
 		fragments = append(fragments, "Auth-related configuration appears to use "+strings.Join(capStrings(envNames, 4), ", ")+".")
 	}
 	if len(fragments) == 0 {
-		fragments = append(fragments, "StackMap found heuristic auth signals; review the evidence before assuming auth is complete.")
+		fragments = append(fragments, "StackIndex found heuristic auth signals; review the evidence before assuming auth is complete.")
 	}
 	return result(question, strings.Join(fragments, " "), confidenceForAuthEvidence(evidence), evidence)
 }
@@ -333,7 +333,7 @@ func answerLocalRun(a *models.Analysis, question string) *models.QAResult {
 		fragments = append(fragments, "Go module detected: "+module+"; `go test ./...` is the safest generic Go test command.")
 	}
 	if hasPythonSource(a) {
-		fragments = append(fragments, "Python files were detected, but StackMap only suggests Python run commands when scripts or docs identify them.")
+		fragments = append(fragments, "Python files were detected, but StackIndex only suggests Python run commands when scripts or docs identify them.")
 	}
 	if a.Deployment.ReadmeMentionsSetup {
 		fragments = append(fragments, "README appears to include setup instructions.")
@@ -342,7 +342,7 @@ func answerLocalRun(a *models.Analysis, question string) *models.QAResult {
 		fragments = append(fragments, "Tests can use the detected test script: "+a.Tests.TestScript+".")
 	}
 	if len(fragments) == 0 {
-		fragments = append(fragments, "StackMap did not find explicit local run scripts or setup clues, so it will not invent commands.")
+		fragments = append(fragments, "StackIndex did not find explicit local run scripts or setup clues, so it will not invent commands.")
 	}
 	evidence := []models.QAEvidence{}
 	for _, script := range scripts {
@@ -395,7 +395,7 @@ func answerTests(a *models.Analysis, question string) *models.QAResult {
 	if tests.HasTestFiles || tests.HasTestScript {
 		fragments = append(fragments, "Tests were detected.")
 	} else {
-		fragments = append(fragments, "StackMap did not detect test files or a package test script.")
+		fragments = append(fragments, "StackIndex did not detect test files or a package test script.")
 	}
 	if len(tests.Frameworks) > 0 {
 		fragments = append(fragments, "Frameworks: "+strings.Join(tests.Frameworks, ", ")+".")
@@ -417,9 +417,9 @@ func answerTests(a *models.Analysis, question string) *models.QAResult {
 func answerEnvironment(a *models.Analysis, question string) *models.QAResult {
 	env := a.Env
 	if !env.UsesEnvVars {
-		return result(question, "StackMap did not detect environment variable usage.", ConfidenceMedium, nil)
+		return result(question, "StackIndex did not detect environment variable usage.", ConfidenceMedium, nil)
 	}
-	answer := fmt.Sprintf("Environment variables are used in this project. StackMap found %d used variable reference%s and %d variable%s in the example file.", len(env.UsedVars), pluralS(len(env.UsedVars)), len(env.ExampleVars), pluralS(len(env.ExampleVars)))
+	answer := fmt.Sprintf("Environment variables are used in this project. StackIndex found %d used variable reference%s and %d variable%s in the example file.", len(env.UsedVars), pluralS(len(env.UsedVars)), len(env.ExampleVars), pluralS(len(env.ExampleVars)))
 	if env.ExampleFile != "" {
 		answer += " Example file: `" + env.ExampleFile + "`."
 	} else {
@@ -455,7 +455,7 @@ func answerConnection(a *models.Analysis, question string) *models.QAResult {
 		if len(backendDirs) > 0 {
 			sides = append(sides, "backend/API surface under "+strings.Join(capStrings(backendDirs, 2), ", "))
 		}
-		fragments = append(fragments, "StackMap sees "+strings.Join(sides, " and ")+".")
+		fragments = append(fragments, "StackIndex sees "+strings.Join(sides, " and ")+".")
 	}
 	if len(clientFiles) > 0 {
 		fragments = append(fragments, "Frontend API client files include "+strings.Join(capStrings(clientFiles, 4), ", ")+".")
@@ -463,7 +463,7 @@ func answerConnection(a *models.Analysis, question string) *models.QAResult {
 	if len(a.Routes) > 0 {
 		fragments = append(fragments, fmt.Sprintf("The frontend/backend boundary is visible through %d detected API route%s.", len(a.Routes), pluralS(len(a.Routes))))
 	} else {
-		fragments = append(fragments, "StackMap did not detect explicit API routes, so it cannot prove a frontend/backend connection.")
+		fragments = append(fragments, "StackIndex did not detect explicit API routes, so it cannot prove a frontend/backend connection.")
 	}
 	backendFrameworks := backendFrameworkSignals(a.Stack.Frameworks)
 	if len(backendFrameworks) > 0 {
@@ -504,7 +504,7 @@ func answerConnection(a *models.Analysis, question string) *models.QAResult {
 func answerChanges(a *models.Analysis, question string) *models.QAResult {
 	changes := a.Changes
 	if changes == nil || !changes.HasPrevious {
-		message := "StackMap needs at least two snapshots before it can answer change questions."
+		message := "StackIndex needs at least two snapshots before it can answer change questions."
 		if changes != nil && changes.Message != "" {
 			message = changes.Message
 		}
@@ -558,7 +558,7 @@ func answerChanges(a *models.Analysis, question string) *models.QAResult {
 }
 
 func unsupported(question, detail string) *models.QAResult {
-	answer := "StackMap ask can answer local evidence questions about project purpose, detected stack, auth/login clues, database/storage, local setup scripts, API routes, important files, frontend/backend connections, deployment readiness, tests, environment configuration, and changes since the last snapshot."
+	answer := "StackIndex ask can answer local evidence questions about project purpose, detected stack, auth/login clues, database/storage, local setup scripts, API routes, important files, frontend/backend connections, deployment readiness, tests, environment configuration, and changes since the last snapshot."
 	if detail != "" {
 		answer = detail + " " + answer
 	}
@@ -644,15 +644,15 @@ func BuildFactsheet(result *models.QAResult) string {
 }
 
 func PromptFor(result *models.QAResult, factsheet string) string {
-	return `You are StackMap, a local-only repository Q&A assistant.
+	return `You are StackIndex, a local-only repository Q&A assistant.
 
-Answer the user's question using only the deterministic StackMap factsheet below.
+Answer the user's question using only the deterministic StackIndex factsheet below.
 Do not add facts, files, endpoints, environment variables, risks, tests, databases, or architecture claims that are not present in the factsheet.
 Do not say you inspected source code directly.
-If evidence is sparse, say what StackMap detected and what it could not prove.
+If evidence is sparse, say what StackIndex detected and what it could not prove.
 Return a concise plain-language answer in one short paragraph plus up to 3 bullets only when useful.
 
-StackMap Q&A factsheet:
+StackIndex Q&A factsheet:
 ` + factsheet
 }
 
@@ -827,7 +827,7 @@ func HistoryPath(root string) string {
 }
 
 func qaDir(root string) string {
-	return filepath.Join(root, ".stackmap", "qa")
+	return filepath.Join(root, ".stackindex", "qa")
 }
 
 func reverseQAResults(results []models.QAResult) {
@@ -1875,7 +1875,7 @@ func sharesAnswerTerm(text, answer string) bool {
 }
 
 func keywordSet(text string) map[string]bool {
-	stop := map[string]bool{"this": true, "that": true, "with": true, "from": true, "have": true, "does": true, "were": true, "detected": true, "stackmap": true, "project": true}
+	stop := map[string]bool{"this": true, "that": true, "with": true, "from": true, "have": true, "does": true, "were": true, "detected": true, "stackindex": true, "project": true}
 	out := map[string]bool{}
 	for _, raw := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-' || r == '/')

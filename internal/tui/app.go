@@ -11,9 +11,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/will/stackmap/internal/models"
-	"github.com/will/stackmap/internal/qa"
-	"github.com/will/stackmap/internal/report"
+	"github.com/wcw-wcw/stackindex/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/qa"
+	"github.com/wcw-wcw/stackindex/internal/report"
 )
 
 var sections = []string{
@@ -185,18 +185,18 @@ func (m *Model) submitAskQuestion() {
 	latestErr, historyErr := qa.WriteLatestAndAppendHistory(m.root, result)
 	switch {
 	case latestErr != nil:
-		result.Warnings = append(result.Warnings, "could not write .stackmap/qa/latest-question.json: "+latestErr.Error())
+		result.Warnings = append(result.Warnings, "could not write .stackindex/qa/latest-question.json: "+latestErr.Error())
 		m.askErr = latestErr
 		m.askStatus = "Answered, but could not save latest Q&A."
 		m.actionStatus = "Q&A done; latest save failed."
 	case historyErr != nil:
-		result.Warnings = append(result.Warnings, "could not append .stackmap/qa/history.jsonl: "+historyErr.Error())
+		result.Warnings = append(result.Warnings, "could not append .stackindex/qa/history.jsonl: "+historyErr.Error())
 		m.askErr = historyErr
 		m.askStatus = "Answered and saved latest Q&A, but history append failed."
 		m.actionStatus = "Q&A done; history save failed."
 	default:
 		m.askErr = nil
-		m.askStatus = "Answered and saved to .stackmap/qa/latest-question.json and history.jsonl."
+		m.askStatus = "Answered and saved to .stackindex/qa/latest-question.json and history.jsonl."
 		m.actionStatus = "Q&A done and saved."
 	}
 	m.askResult = result
@@ -334,7 +334,7 @@ func (m Model) header(width int, compact bool) string {
 		stack = truncate(stack, width-34)
 	}
 	lines := []string{
-		titleStyle.Render("StackMap") + "  " + mutedStyle.Render(m.analysis.RepoName),
+		titleStyle.Render("StackIndex") + "  " + mutedStyle.Render(m.analysis.RepoName),
 		fmt.Sprintf("Stack: %s", stack),
 		fmt.Sprintf("Files %d   Routes %d   Tests %d   Findings %s",
 			len(m.analysis.Files),
@@ -567,7 +567,7 @@ func (m Model) auditDetail(width int) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, sectionTitleStyle.Render("Audit"))
 	if m.analysis.Audit == nil {
-		fmt.Fprintln(&b, "Audit was not run. Use `stackmap audit .` or `stackmap analyze . --audit`.")
+		fmt.Fprintln(&b, "Audit was not run. Use `stackindex audit .` or `stackindex analyze . --audit`.")
 		return b.String()
 	}
 	audit := m.analysis.Audit
@@ -833,10 +833,10 @@ func (m Model) askHelpDetail(width, height int) string {
 	fmt.Fprintln(&b, sectionTitleStyle.Render("Ask / Q&A Help"))
 	fmt.Fprintln(&b, "Examples:")
 	examples := []string{
-		`stackmap ask . "What is this project for?"`,
-		`stackmap ask . "Where are the API routes?"`,
-		`stackmap ask . "What should I review before deployment?"`,
-		`stackmap ask . "How does this project use Postgres?"`,
+		`stackindex ask . "What is this project for?"`,
+		`stackindex ask . "Where are the API routes?"`,
+		`stackindex ask . "What should I review before deployment?"`,
+		`stackindex ask . "How does this project use Postgres?"`,
 	}
 	for _, example := range examples {
 		fmt.Fprintf(&b, "- %s\n", example)
@@ -848,7 +848,7 @@ func (m Model) askHelpDetail(width, height int) string {
 	} else if result, ok := m.latestQA(); ok {
 		writeQAResult(&b, "Latest saved Q&A", result, width)
 	} else {
-		fmt.Fprintln(&b, "\nNo saved Q&A result found at .stackmap/qa/latest-question.json.")
+		fmt.Fprintln(&b, "\nNo saved Q&A result found at .stackindex/qa/latest-question.json.")
 	}
 	writeRecentQuestions(&b, m.recentQA(4), width)
 	if m.askStatus != "" {
@@ -973,8 +973,8 @@ func (m Model) reportsDetail(width int) string {
 		fmt.Fprintf(&b, "\nError: %v\n", m.err)
 		return b.String()
 	}
-	fmt.Fprintf(&b, "\nJSON: %s\n", truncate(filepath.Join(m.root, ".stackmap", "analysis.json"), width-6))
-	fmt.Fprintf(&b, "Markdown: %s\n", truncate(filepath.Join(m.root, ".stackmap", "reports", "repo-report.md"), width-10))
+	fmt.Fprintf(&b, "\nJSON: %s\n", truncate(filepath.Join(m.root, ".stackindex", "analysis.json"), width-6))
+	fmt.Fprintf(&b, "Markdown: %s\n", truncate(filepath.Join(m.root, ".stackindex", "reports", "repo-index.md"), width-10))
 	if m.analysis.AI != nil && m.analysis.AI.Warning != "" {
 		fmt.Fprintf(&b, "\nAI warning: %s\n", truncate(m.analysis.AI.Warning, width-12))
 	} else if m.analysis.AI != nil && m.analysis.AI.ParseError != "" && !aiGeneratedSuccessfully(m.analysis.AI) {

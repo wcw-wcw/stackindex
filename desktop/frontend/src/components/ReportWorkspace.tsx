@@ -9,7 +9,7 @@ import {
   QAEvidenceView,
   revealProjectFolder,
   revealSnapshotFolder,
-  revealStackMapFolder,
+  revealStackIndexFolder,
   SnapshotView,
 } from '../wails';
 import { MetricCard } from './MetricCard';
@@ -33,7 +33,7 @@ export function ReportWorkspace({ result, onRunAgain, onOpenSettings }: { result
     <section className="workspace">
       <header className="project-header">
         <div>
-          <div className="eyebrow">StackMap report workspace</div>
+          <div className="eyebrow">StackIndex report workspace</div>
           <h1>{result.repoName}</h1>
           <p className="muted code-line">{result.repoPath}</p>
         </div>
@@ -195,7 +195,7 @@ const supportedCategories = [
 
 type AskMessage =
   | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'stackmap'; response: AskResponse }
+  | { id: number; role: 'stackindex'; response: AskResponse }
   | { id: number; role: 'system'; text: string };
 
 function Ask() {
@@ -223,7 +223,7 @@ function Ask() {
     setIsAsking(true);
     try {
       const response = await askQuestion({ question: nextQuestion });
-      setMessages((current) => [...current, { id: Date.now() + 1, role: 'stackmap', response }]);
+      setMessages((current) => [...current, { id: Date.now() + 1, role: 'stackindex', response }]);
     } catch (err) {
       setMessages((current) => [...current, { id: Date.now() + 1, role: 'system', text: errorMessage(err) }]);
     } finally {
@@ -233,7 +233,7 @@ function Ask() {
 
   return (
     <>
-      <SectionHeader title="Ask" subtitle="Deterministic Q&A from the current StackMap analysis evidence." />
+      <SectionHeader title="Ask" subtitle="Deterministic Q&A from the current StackIndex analysis evidence." />
       <div className="ask-panel">
         {messages.length === 0 ? (
           <div className="ask-empty">
@@ -244,7 +244,7 @@ function Ask() {
         ) : (
           <div className="ask-thread" aria-live="polite">
             {messages.map((message) => <AskBubble key={message.id} message={message} />)}
-            {isAsking && <p className="ask-status">StackMap is checking report evidence...</p>}
+            {isAsking && <p className="ask-status">StackIndex is checking report evidence...</p>}
           </div>
         )}
         <form className="ask-form" onSubmit={submitAsk}>
@@ -253,7 +253,7 @@ function Ask() {
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             placeholder='Ask a question or type "/help"'
-            aria-label="Ask StackMap"
+            aria-label="Ask StackIndex"
           />
           <button type="submit" disabled={!question.trim() || isAsking}>
             Send
@@ -299,7 +299,7 @@ function AskBubble({ message }: { message: AskMessage }) {
   if (message.role === 'system') {
     return (
       <div className="ask-message ask-system">
-        <span>stackmap</span>
+        <span>stackindex</span>
         <p className="pre-line">{message.text}</p>
       </div>
     );
@@ -307,8 +307,8 @@ function AskBubble({ message }: { message: AskMessage }) {
   const response = message.response;
   const isUnsupported = response.warnings?.includes('unsupported question type');
   return (
-    <div className="ask-message ask-stackmap">
-      <span>stackmap</span>
+    <div className="ask-message ask-stackindex">
+      <span>stackindex</span>
       <p>{response.answer}</p>
       <div className="ask-meta">
         <StatusBadge status={`confidence: ${response.confidence || 'unknown'}`} />
@@ -415,7 +415,7 @@ function Reports({ result }: { result: AnalyzeResponse }) {
 
   return (
     <>
-      <SectionHeader title="Reports" subtitle="Files written by the local StackMap analysis run." />
+      <SectionHeader title="Reports" subtitle="Files written by the local StackIndex analysis run." />
       <div className="report-paths">
         <ReportPath label="JSON" path={result.reports.jsonPath} />
         <ReportPath label="Markdown" path={result.reports.markdownPath} />
@@ -434,8 +434,8 @@ function Reports({ result }: { result: AnalyzeResponse }) {
         <button type="button" className="secondary compact" onClick={() => runAction('Reveal project folder', () => revealProjectFolder({ path: result.repoPath }))}>
           Reveal project folder
         </button>
-        <button type="button" className="secondary compact" onClick={() => runAction('Reveal .stackmap', () => revealStackMapFolder({ path: result.repoPath }))}>
-          Reveal .stackmap
+        <button type="button" className="secondary compact" onClick={() => runAction('Reveal .stackindex', () => revealStackIndexFolder({ path: result.repoPath }))}>
+          Reveal .stackindex
         </button>
         <button type="button" className="secondary compact" onClick={() => runAction('Open Markdown report', () => openMarkdownReport({ path: result.reports.markdownPath }))}>
           Open Markdown report
@@ -457,7 +457,7 @@ function Reports({ result }: { result: AnalyzeResponse }) {
           <span>{history.length} snapshot{history.length === 1 ? '' : 's'}</span>
         </div>
         {history.length === 0 ? (
-          <p className="body-copy">No local snapshots found in `.stackmap/history`.</p>
+          <p className="body-copy">No local snapshots found in `.stackindex/history`.</p>
         ) : (
           <div className="snapshot-list">
             {history.slice(0, 8).map((snapshot) => (
@@ -468,7 +468,7 @@ function Reports({ result }: { result: AnalyzeResponse }) {
       </div>
       {actionStatus && <p className="status">{actionStatus}</p>}
       {actionError && <p className="error">{actionError}</p>}
-      <p className="body-copy">Reports stay in `.stackmap` inside the analyzed project.</p>
+      <p className="body-copy">Reports stay in `.stackindex` inside the analyzed project.</p>
     </>
   );
 }
@@ -480,7 +480,7 @@ function ChangesPanel({ changes }: { changes: AnalyzeResponse['reports']['change
         <div className="history-header">
           <h3>Changes since previous snapshot</h3>
         </div>
-        <p className="body-copy">{changes?.message || 'No previous snapshot yet. Run StackMap again after another analysis to see changes.'}</p>
+        <p className="body-copy">{changes?.message || 'No previous snapshot yet. Run StackIndex again after another analysis to see changes.'}</p>
       </div>
     );
   }

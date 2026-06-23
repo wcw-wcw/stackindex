@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 type Options struct {

@@ -56,7 +56,7 @@ export function SettingsPage({
         <section className="settings-section">
           <h2>Local-first</h2>
           <p className="body-copy">
-            StackMap analyzes local files. Public GitHub repositories are cloned into the local cache. Optional AI uses local Ollama only.
+            StackIndex analyzes local files. Public GitHub repositories are cloned into the local cache. Optional AI uses local Ollama only.
           </p>
         </section>
 

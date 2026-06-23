@@ -15,7 +15,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "StackMap",
+		Title:  "StackIndex",
 		Width:  1100,
 		Height: 760,
 		AssetServer: &assetserver.Options{
@@ -28,6 +28,6 @@ func main() {
 		},
 	})
 	if err != nil {
-		println("stackmap desktop:", err.Error())
+		println("stackindex desktop:", err.Error())
 	}
 }

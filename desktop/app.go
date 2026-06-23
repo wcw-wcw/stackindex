@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-	"github.com/will/stackmap/desktop/backend"
+	"github.com/wcw-wcw/stackindex/desktop/backend"
 )
 
 type App struct {
@@ -74,8 +74,8 @@ func (a *App) RevealProjectFolder(request backend.PathActionRequest) error {
 	return a.session.RevealProjectFolder(context.Background(), request)
 }
 
-func (a *App) RevealStackMapFolder(request backend.PathActionRequest) error {
-	return a.session.RevealStackMapFolder(context.Background(), request)
+func (a *App) RevealStackIndexFolder(request backend.PathActionRequest) error {
+	return a.session.RevealStackIndexFolder(context.Background(), request)
 }
 
 func (a *App) RevealSnapshotFolder(request backend.PathActionRequest) error {

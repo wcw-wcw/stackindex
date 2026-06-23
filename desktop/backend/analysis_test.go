@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestBuildAnalyzeResponseMapsDesktopSummary(t *testing.T) {
@@ -51,7 +51,7 @@ func TestBuildAnalyzeResponseMapsDesktopSummary(t *testing.T) {
 	if response.AIStatus != "generated" || response.AIModel != "llama3.2:3b" {
 		t.Fatalf("unexpected AI status: %#v", response)
 	}
-	if response.JSONReportPath != filepath.Join(root, ".stackmap", "analysis.json") {
+	if response.JSONReportPath != filepath.Join(root, ".stackindex", "analysis.json") {
 		t.Fatalf("unexpected JSON path: %s", response.JSONReportPath)
 	}
 	if response.Context.Purpose != "Example service" || len(response.Context.Evidence) != 1 {
@@ -69,7 +69,7 @@ func TestBuildAnalyzeResponseMapsDesktopSummary(t *testing.T) {
 	if response.AI.LocalNotes != "Local-only notes." || response.AI.DeterministicSummary == "" {
 		t.Fatalf("unexpected AI view: %#v", response.AI)
 	}
-	if response.Reports.MarkdownPath != filepath.Join(root, ".stackmap", "reports", "repo-report.md") {
+	if response.Reports.MarkdownPath != filepath.Join(root, ".stackindex", "reports", "repo-index.md") {
 		t.Fatalf("unexpected reports view: %#v", response.Reports)
 	}
 }
@@ -159,8 +159,8 @@ func TestAskQuestionAnswersAndWritesArtifacts(t *testing.T) {
 		t.Fatalf("expected evidence: %#v", response)
 	}
 	for _, path := range []string{
-		filepath.Join(root, ".stackmap", "qa", "latest-question.json"),
-		filepath.Join(root, ".stackmap", "qa", "history.jsonl"),
+		filepath.Join(root, ".stackindex", "qa", "latest-question.json"),
+		filepath.Join(root, ".stackindex", "qa", "history.jsonl"),
 	} {
 		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
 			t.Fatalf("expected written qa artifact at %s: info=%#v err=%v", path, info, err)
@@ -170,7 +170,7 @@ func TestAskQuestionAnswersAndWritesArtifacts(t *testing.T) {
 
 func TestOpenExistingReportDoesNotCreateSnapshot(t *testing.T) {
 	root := t.TempDir()
-	analysisDir := filepath.Join(root, ".stackmap")
+	analysisDir := filepath.Join(root, ".stackindex")
 	if err := os.MkdirAll(analysisDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestOpenExistingReportDoesNotCreateSnapshot(t *testing.T) {
 	if _, err := session.OpenExistingReport(root); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".stackmap", "history")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".stackindex", "history")); !os.IsNotExist(err) {
 		t.Fatalf("OpenExistingReport created history directory, err=%v", err)
 	}
 }

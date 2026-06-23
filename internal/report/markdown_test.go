@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestMarkdownRendersStructuredAISummary(t *testing.T) {
@@ -23,8 +23,8 @@ func TestMarkdownRendersStructuredAISummary(t *testing.T) {
 
 	out := Markdown(analysis)
 	for _, want := range []string{
-		"## AI Project Summary",
-		"StackMap detected this as a Go application.",
+		"## AI Notes",
+		"StackIndex detected this as a Go application.",
 		"### Local AI Notes",
 		"### Summary",
 		"A local-first analyzer.",
@@ -56,7 +56,7 @@ func TestMarkdownRendersGracefulAIFallback(t *testing.T) {
 
 	out := Markdown(analysis)
 	for _, want := range []string{
-		"StackMap detected this as a Go application.",
+		"StackIndex detected this as a Go application.",
 		"Local AI summary unavailable: `qwen:7b` did not return usable project-summary text.",
 	} {
 		if !strings.Contains(out, want) {
@@ -81,7 +81,7 @@ func TestMarkdownDoesNotRenderIrrelevantUnixPathExplanationAsMainAISummary(t *te
 
 	out := Markdown(analysis)
 	for _, want := range []string{
-		"StackMap detected this as a Next.js/React application",
+		"StackIndex detected this as a Next.js/React application",
 		"TypeScript",
 		"PostgreSQL",
 		"Local AI summary unavailable: `qwen:7b` did not return usable project-summary text.",
@@ -117,8 +117,8 @@ func TestMarkdownRendersRelevantRawFallback(t *testing.T) {
 	analysis.AI = &models.AISummary{
 		Enabled:    true,
 		Model:      "qwen:7b",
-		LocalNotes: "This Go CLI analyzes repositories and writes local StackMap reports.",
-		RawText:    "This Go CLI analyzes repositories and writes local StackMap reports.",
+		LocalNotes: "This Go CLI analyzes repositories and writes local StackIndex reports.",
+		RawText:    "This Go CLI analyzes repositories and writes local StackIndex reports.",
 		ParseError: "response did not contain a JSON object",
 		Relevance:  "passed",
 		Status:     "generated_text",
@@ -128,7 +128,7 @@ func TestMarkdownRendersRelevantRawFallback(t *testing.T) {
 	if !strings.Contains(out, "### Local AI Notes") || !strings.Contains(out, "This Go CLI analyzes repositories") {
 		t.Fatalf("Markdown did not render relevant local AI notes:\n%s", out)
 	}
-	if !strings.Contains(out, "StackMap detected this as a Go application.") {
+	if !strings.Contains(out, "StackIndex detected this as a Go application.") {
 		t.Fatalf("Markdown did not render deterministic summary before local notes:\n%s", out)
 	}
 }
@@ -138,7 +138,7 @@ func TestMarkdownRendersRelevantMarkdownBulletAINotes(t *testing.T) {
 	analysis.AI = &models.AISummary{
 		Enabled: true,
 		Model:   "llama3.2:3b",
-		LocalNotes: "This TypeScript Next.js/React app has PostgreSQL and Vercel signals in the StackMap factsheet.\n\n" +
+		LocalNotes: "This TypeScript Next.js/React app has PostgreSQL and Vercel signals in the StackIndex factsheet.\n\n" +
 			"- Vitest is detected for testing.\n" +
 			"- Migration files and an env example are present.",
 		RawText:   "same",
@@ -148,7 +148,7 @@ func TestMarkdownRendersRelevantMarkdownBulletAINotes(t *testing.T) {
 
 	out := Markdown(analysis)
 	for _, want := range []string{
-		"StackMap detected this as a Next.js/React application",
+		"StackIndex detected this as a Next.js/React application",
 		"### Local AI Notes",
 		"This TypeScript Next.js/React app has PostgreSQL and Vercel signals",
 		"- Vitest is detected for testing.",
@@ -168,7 +168,7 @@ func TestMarkdownSuppressesUnsupportedOverclaimText(t *testing.T) {
 		RawText:         "This Go app has a PostgreSQL database and microservices architecture.",
 		ParseError:      "response did not contain a JSON object",
 		Relevance:       "low_confidence",
-		RelevanceReason: "Model output described service topology, but StackMap does not detect service topology.",
+		RelevanceReason: "Model output described service topology, but StackIndex does not detect service topology.",
 		Status:          "fallback_irrelevant",
 	}
 
@@ -190,7 +190,7 @@ func TestMarkdownDoesNotEmitEmptyCodeFenceForEmptyAIRawText(t *testing.T) {
 	}
 
 	out := Markdown(analysis)
-	if !strings.Contains(out, "StackMap detected this as a Next.js/React application") || !strings.Contains(out, "Local AI summary unavailable") {
+	if !strings.Contains(out, "StackIndex detected this as a Next.js/React application") || !strings.Contains(out, "Local AI summary unavailable") {
 		t.Fatalf("Markdown did not render deterministic fallback:\n%s", out)
 	}
 	if strings.Contains(out, "```") || strings.Contains(out, "### Raw Model Summary") {
@@ -313,8 +313,8 @@ func TestMarkdownAuditResultRendersPassingState(t *testing.T) {
 			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "## AI Project Summary") && strings.Index(out, "## Audit Result") > strings.Index(out, "## AI Project Summary") {
-		t.Fatalf("Audit Result rendered after AI Project Summary:\n%s", out)
+	if strings.Contains(out, "## AI Notes") && strings.Index(out, "## Audit Result") > strings.Index(out, "## AI Notes") {
+		t.Fatalf("Audit Result rendered after AI Notes:\n%s", out)
 	}
 }
 
@@ -357,8 +357,8 @@ func TestMarkdownRendersProjectContextStructureAndKeyFiles(t *testing.T) {
 	analysis.Context = models.ProjectContext{
 		Purpose:       "Go CLI/TUI repository analysis tool",
 		Confidence:    "high",
-		ReadmeTitle:   "StackMap",
-		ReadmeSummary: "StackMap scans repositories and writes Markdown/JSON reports.",
+		ReadmeTitle:   "StackIndex",
+		ReadmeSummary: "StackIndex scans repositories and writes Markdown/JSON reports.",
 		Evidence:      []string{"README/package metadata points to go cli/tui repository analysis tool."},
 	}
 	analysis.Structure = models.StructureMap{
@@ -377,7 +377,7 @@ func TestMarkdownRendersProjectContextStructureAndKeyFiles(t *testing.T) {
 		"## Project Context",
 		"- Likely purpose: Go CLI/TUI repository analysis tool",
 		"- Confidence: high",
-		"- README title: StackMap",
+		"- README title: StackIndex",
 		"## Project Structure",
 		"- `cmd/` — CLI entrypoints.",
 		"## Key Files",
@@ -394,7 +394,7 @@ func TestMarkdownRendersFileConnectionsAndArchitectureHints(t *testing.T) {
 	analysis.Dependencies = models.DependencyGraph{
 		TopConnectedFiles: []models.ConnectedFileSummary{
 			{
-				Path:            "cmd/stackmap/main.go",
+				Path:            "cmd/stackindex/main.go",
 				Role:            "Main CLI entrypoint",
 				ImportsCount:    4,
 				ImportedByCount: 0,
@@ -417,7 +417,7 @@ func TestMarkdownRendersFileConnectionsAndArchitectureHints(t *testing.T) {
 	out := Markdown(analysis)
 	for _, want := range []string{
 		"## File Connections",
-		"`cmd/stackmap/main.go`",
+		"`cmd/stackindex/main.go`",
 		"main CLI entrypoint",
 		"imports 4 internal file(s), imported by 0 internal file(s)",
 		"## Architecture Hints",

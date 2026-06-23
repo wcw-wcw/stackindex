@@ -137,7 +137,7 @@ export default function App() {
     setError('');
     setResult(null);
     setIsRunning(true);
-    setStatus('Analyzing project and writing .stackmap reports...');
+    setStatus('Analyzing project and writing .stackindex reports...');
     try {
       const nextResult = await analyzeProject({
         path: projectPath,
@@ -148,7 +148,7 @@ export default function App() {
       setPath(nextResult.repoPath || projectPath);
       setResult(nextResult);
       setViewMode('report');
-      setStatus('Reports written to .stackmap.');
+      setStatus('Reports written to .stackindex.');
       await refreshRecentProjects();
     } catch (err) {
       setError(errorMessage(err));
@@ -202,7 +202,7 @@ export default function App() {
   async function openReport(projectPath: string) {
     setError('');
     setIsRunning(true);
-    setStatus('Opening previous StackMap report...');
+    setStatus('Opening previous StackIndex report...');
     try {
       const nextResult = await openExistingReport(projectPath);
       setPath(nextResult.repoPath || projectPath);
@@ -272,7 +272,7 @@ export default function App() {
     try {
       await clearGitHubCache();
       await loadDesktopState();
-      setStatus('Cleared StackMap GitHub cache.');
+      setStatus('Cleared StackIndex GitHub cache.');
     } catch (err) {
       setError(errorMessage(err));
       setStatus('Could not clear GitHub cache.');

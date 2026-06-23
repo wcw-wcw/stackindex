@@ -10,7 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestOverviewIncludesPurpose(t *testing.T) {
@@ -38,7 +38,7 @@ func TestStructureSectionRenders(t *testing.T) {
 
 	out := model.detail(80)
 	assertContains(t, out, "Structure")
-	assertContains(t, out, "cmd/stackmap")
+	assertContains(t, out, "cmd/stackindex")
 	assertContains(t, out, "Key files")
 }
 
@@ -115,11 +115,11 @@ func TestAINotesRenderLocalNotesForGeneratedTextWithParseError(t *testing.T) {
 
 func TestAskHelpSectionRendersLatestQuestion(t *testing.T) {
 	root := t.TempDir()
-	qaDir := filepath.Join(root, ".stackmap", "qa")
+	qaDir := filepath.Join(root, ".stackindex", "qa")
 	if err := os.MkdirAll(qaDir, 0755); err != nil {
 		t.Fatalf("mkdir qa dir: %v", err)
 	}
-	data := []byte(`{"question":"Where are the API routes?","answer":"Routes are in cmd/stackmap.","confidence":"high","mode":"deterministic"}`)
+	data := []byte(`{"question":"Where are the API routes?","answer":"Routes are in cmd/stackindex.","confidence":"high","mode":"deterministic"}`)
 	if err := os.WriteFile(filepath.Join(qaDir, "latest-question.json"), data, 0644); err != nil {
 		t.Fatalf("write latest qa: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestAskHelpSubmitWritesLatestQuestion(t *testing.T) {
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Where are the API routes?")})
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 
-	data, err := os.ReadFile(filepath.Join(root, ".stackmap", "qa", "latest-question.json"))
+	data, err := os.ReadFile(filepath.Join(root, ".stackindex", "qa", "latest-question.json"))
 	if err != nil {
 		t.Fatalf("read latest qa: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestAskHelpSubmitAppendsHistory(t *testing.T) {
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("What is this project for?")})
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 
-	data, err := os.ReadFile(filepath.Join(root, ".stackmap", "qa", "history.jsonl"))
+	data, err := os.ReadFile(filepath.Join(root, ".stackindex", "qa", "history.jsonl"))
 	if err != nil {
 		t.Fatalf("read history qa: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestAskHelpSubmitAppendsHistory(t *testing.T) {
 
 func TestAskHelpSectionRendersRecentQuestions(t *testing.T) {
 	root := t.TempDir()
-	qaDir := filepath.Join(root, ".stackmap", "qa")
+	qaDir := filepath.Join(root, ".stackindex", "qa")
 	if err := os.MkdirAll(qaDir, 0755); err != nil {
 		t.Fatalf("mkdir qa dir: %v", err)
 	}
@@ -558,11 +558,11 @@ func TestLongLinesAreWrappedOrClippedToFrameWidth(t *testing.T) {
 
 func fixtureAnalysis() *models.Analysis {
 	return &models.Analysis{
-		RepoPath:    "/tmp/stackmap",
-		RepoName:    "stackmap",
+		RepoPath:    "/tmp/stackindex",
+		RepoName:    "stackindex",
 		GeneratedAt: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC),
 		Files: []models.FileInfo{
-			{Path: "cmd/stackmap/main.go", Kind: models.FileKindSource},
+			{Path: "cmd/stackindex/main.go", Kind: models.FileKindSource},
 			{Path: "internal/tui/app.go", Kind: models.FileKindSource},
 			{Path: "internal/tui/app_test.go", Kind: models.FileKindTest},
 			{Path: "README.md", Kind: models.FileKindDoc},
@@ -575,19 +575,19 @@ func fixtureAnalysis() *models.Analysis {
 		Context: models.ProjectContext{
 			Purpose:       "Go CLI/TUI repository analysis tool",
 			Confidence:    "high",
-			ReadmeTitle:   "StackMap",
-			ReadmeSummary: "StackMap analyzes a local repository and presents concise reports for developers.",
+			ReadmeTitle:   "StackIndex",
+			ReadmeSummary: "StackIndex analyzes a local repository and presents concise reports for developers.",
 			Evidence:      []string{"README/package metadata points to go cli/tui repository analysis tool."},
 			ScriptSignals: []string{"go test ./..."},
 			EnvSignals:    []string{"DATABASE_URL"},
 		},
 		Structure: models.StructureMap{
 			Directories: []models.DirectoryRole{
-				{Path: "cmd/stackmap", Role: "CLI entrypoint", FileCount: 1},
+				{Path: "cmd/stackindex", Role: "CLI entrypoint", FileCount: 1},
 				{Path: "internal/tui", Role: "Bubble Tea terminal UI", FileCount: 2},
 			},
 			KeyFiles: []models.FileRole{
-				{Path: "cmd/stackmap/main.go", Role: "CLI command routing", Importance: "high"},
+				{Path: "cmd/stackindex/main.go", Role: "CLI command routing", Importance: "high"},
 				{Path: "internal/tui/app.go", Role: "TUI model and views", Importance: "high"},
 			},
 		},
@@ -598,7 +598,7 @@ func fixtureAnalysis() *models.Analysis {
 			ArchitectureHints: []string{"CLI delegates report browsing to the TUI package."},
 		},
 		Routes: []models.RouteInfo{
-			{Method: "GET", Path: "/api/health", SourceFile: "cmd/stackmap/main.go", Confidence: "medium"},
+			{Method: "GET", Path: "/api/health", SourceFile: "cmd/stackindex/main.go", Confidence: "medium"},
 		},
 		Env: models.EnvAnalysis{
 			UsesEnvVars:                true,
@@ -627,7 +627,7 @@ func fixtureAnalysis() *models.Analysis {
 			Enabled:        true,
 			Status:         "generated_structured",
 			Model:          "llama3.2:3b",
-			ProjectSummary: "StackMap is a local developer analysis tool.",
+			ProjectSummary: "StackIndex is a local developer analysis tool.",
 		},
 		Audit: &models.AuditResult{
 			Passed:   true,

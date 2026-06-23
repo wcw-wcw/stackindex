@@ -33,7 +33,7 @@ func TestValidateExistingDirRejectsFile(t *testing.T) {
 }
 
 func TestValidateReportFileRejectsMissingPath(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), ".stackmap", "analysis.json")
+	missing := filepath.Join(t.TempDir(), ".stackindex", "analysis.json")
 
 	_, err := validateReportFile(missing, ".json", "JSON report")
 	if err == nil || !strings.Contains(err.Error(), "JSON report does not exist") {
@@ -65,7 +65,7 @@ func TestBuildCLICommandLocalAuditAIModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := `stackmap analyze "/tmp/example repo" --audit --ai --model "llama \"small\""`
+	want := `stackindex analyze "/tmp/example repo" --audit --ai --model "llama \"small\""`
 	if command != want {
 		t.Fatalf("command = %q, want %q", command, want)
 	}
@@ -82,7 +82,7 @@ func TestBuildCLICommandOmitsAuditAndAIWhenNotRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := `stackmap analyze "/tmp/example"`
+	want := `stackindex analyze "/tmp/example"`
 	if command != want {
 		t.Fatalf("command = %q, want %q", command, want)
 	}
@@ -92,7 +92,7 @@ func TestBuildCLICommandUsesGitHubLocalCachePath(t *testing.T) {
 	command, err := buildCLICommand(CLICommandRequest{
 		RepoPath:       "/tmp/other",
 		SourceType:     sourceTypeGitHub,
-		LocalCachePath: "/Users/will/Library/Caches/StackMap/repos/github.com/owner/repo",
+		LocalCachePath: "/Users/will/Library/Caches/StackIndex/repos/github.com/owner/repo",
 		AuditStatus:    "failed",
 		AIStatus:       "not requested",
 	})
@@ -100,7 +100,7 @@ func TestBuildCLICommandUsesGitHubLocalCachePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := `stackmap analyze "/Users/will/Library/Caches/StackMap/repos/github.com/owner/repo" --audit`
+	want := `stackindex analyze "/Users/will/Library/Caches/StackIndex/repos/github.com/owner/repo" --audit`
 	if command != want {
 		t.Fatalf("command = %q, want %q", command, want)
 	}

@@ -71,8 +71,8 @@ export function LandingPage({
       <div className="landing-header">
         <div>
           <div className="eyebrow">Local-first codebase analyzer</div>
-          <h1>StackMap</h1>
-          <p className="intro">Analyze a project on this machine and export the familiar `.stackmap` JSON and Markdown reports.</p>
+          <h1>StackIndex</h1>
+          <p className="intro">Analyze a project on this machine and export the familiar `.stackindex` JSON and Markdown reports.</p>
         </div>
         <button type="button" className="secondary" onClick={onOpenSettings} disabled={isRunning}>Settings</button>
       </div>
@@ -106,12 +106,12 @@ export function LandingPage({
               placeholder="https://github.com/owner/repo"
               disabled={isRunning}
             />
-            <p className="selected">Public HTTPS github.com repositories only. Cloned into the local StackMap cache.</p>
+            <p className="selected">Public HTTPS github.com repositories only. Cloned into the local StackIndex cache.</p>
             <label className="toggle github-refresh">
               <input type="checkbox" checked={githubRefresh} onChange={(event) => onGitHubRefreshChange(event.target.checked)} disabled={isRunning} />
               <span>Refresh cached clone before analysis</span>
             </label>
-            <p className="selected">Refresh updates the local cached public GitHub clone before StackMap analyzes it.</p>
+            <p className="selected">Refresh updates the local cached public GitHub clone before StackIndex analyzes it.</p>
           </div>
         )}
 
@@ -185,7 +185,7 @@ function RecentProjects({
       <div className="recent-header">
         <div>
           <h2>Recent Projects</h2>
-          <p>Open an existing `.stackmap` report without rerunning analysis.</p>
+          <p>Open an existing `.stackindex` report without rerunning analysis.</p>
         </div>
         {projects.length > 0 && (
           <button type="button" className="secondary compact" onClick={onClearRecent} disabled={isRunning}>

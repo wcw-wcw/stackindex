@@ -7,15 +7,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func WriteMarkdown(root string, analysis *models.Analysis) error {
-	outDir := filepath.Join(root, ".stackmap", "reports")
+	outDir := filepath.Join(root, ".stackindex", "reports")
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(outDir, "repo-report.md"), []byte(Markdown(analysis)), 0644)
+	return os.WriteFile(filepath.Join(outDir, "repo-index.md"), []byte(Markdown(analysis)), 0644)
 }
 
 func ExportAll(root string, analysis *models.Analysis) error {
@@ -34,10 +34,16 @@ func ExportAll(root string, analysis *models.Analysis) error {
 
 func Markdown(a *models.Analysis) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# StackMap Report\n\n")
+	fmt.Fprintf(&b, "# StackIndex Repo Index\n\n")
 	fmt.Fprintf(&b, "Generated: %s\n\n", a.GeneratedAt.Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(&b, "## Project Summary\n\n")
-	fmt.Fprintf(&b, "- Repository: `%s`\n- Path: `%s`\n- Files scanned: %d\n- Findings: %s\n\n", a.RepoName, a.RepoPath, len(a.Files), findingSummary(a.Findings))
+	fmt.Fprintf(&b, "This file is an agent-facing map of the repository. Read it before broad file searches so follow-up exploration can stay targeted.\n\n")
+
+	fmt.Fprintf(&b, "## Repository Snapshot\n\n")
+	fmt.Fprintf(&b, "- Repository: `%s`\n- Path: `%s`\n- Files indexed: %d\n- Finding summary: %s\n\n", a.RepoName, a.RepoPath, len(a.Files), findingSummary(a.Findings))
+
+	writeProjectContext(&b, a)
+	writeAgentSearchGuide(&b, a)
+	writeSearchBudgetHints(&b, a)
 
 	writeAuditResult(&b, a)
 
@@ -45,26 +51,15 @@ func Markdown(a *models.Analysis) string {
 
 	writeChangeSummary(&b, a)
 
-	fmt.Fprintf(&b, "## Top Recommended Fixes\n\n")
-	writeTopFixes(&b, a)
-
-	fmt.Fprintf(&b, "## Health Summary\n\n")
-	fmt.Fprintf(&b, "- Stack detected: %s\n", present(stackDetected(a.Stack)))
-	fmt.Fprintf(&b, "- Tests present: %s\n", present(a.Tests.HasTestFiles || a.Tests.HasTestScript))
-	fmt.Fprintf(&b, "- Health endpoint present: %s\n", present(a.Deployment.HasHealthEndpoint))
-	fmt.Fprintf(&b, "- Env example present: %s\n", present(a.Deployment.HasEnvExample))
-	fmt.Fprintf(&b, "- Migration files present: %s\n", present(a.Deployment.HasMigrationFiles))
-	fmt.Fprintf(&b, "- Deployment docs present: %s\n\n", present(a.Deployment.ReadmeMentionsDeploy))
-
 	fmt.Fprintf(&b, "## Detected Stack\n\n")
 	writeList(&b, "Languages", a.Stack.Languages)
 	writeList(&b, "Frameworks", a.Stack.Frameworks)
+	writeList(&b, "Libraries", a.Stack.Libraries)
 	writeList(&b, "Databases", a.Stack.Databases)
 	writeList(&b, "Testing", a.Stack.Testing)
 	writeList(&b, "Deployment", a.Stack.Deployment)
 	fmt.Fprintln(&b)
 
-	writeProjectContext(&b, a)
 	writeProjectStructure(&b, a)
 	writeKeyFiles(&b, a)
 	writeFileConnections(&b, a)
@@ -151,9 +146,91 @@ func Markdown(a *models.Analysis) string {
 	} else if len(a.Findings) > 0 {
 		writeFindingRecommendations(&b, a.Findings, 0)
 	} else {
-		fmt.Fprintln(&b, "- Keep reports current by running `stackmap analyze . --no-tui` before deployment reviews.")
+		fmt.Fprintln(&b, "- Keep this index current by running `stackindex analyze . --no-tui` after meaningful repository changes.")
 	}
 	return b.String()
+}
+
+func writeAgentSearchGuide(b *strings.Builder, a *models.Analysis) {
+	fmt.Fprintf(b, "## Agent Search Guide\n\n")
+	readFirst := agentReadFirstFiles(a)
+	if len(readFirst) == 0 {
+		fmt.Fprintln(b, "- Start with repository documentation and top-level configuration files.")
+	} else {
+		fmt.Fprintln(b, "- Read first:")
+		for _, file := range readFirst {
+			fmt.Fprintf(b, "  - `%s`", file.Path)
+			if role := reportFileRole(file); role != "" {
+				fmt.Fprintf(b, " - %s", role)
+			}
+			fmt.Fprintln(b)
+		}
+	}
+	if len(a.Structure.Directories) > 0 {
+		fmt.Fprintln(b, "- Search by directory role:")
+		for _, dir := range capReportDirectoryRoles(a.Structure.Directories, 6) {
+			fmt.Fprintf(b, "  - `%s` - %s\n", dir.Path, dir.Role)
+		}
+	}
+	if len(a.Dependencies.TopConnectedFiles) > 0 {
+		fmt.Fprintln(b, "- Inspect dependency hubs before leaf files:")
+		for _, file := range capReportConnectedFiles(a.Dependencies.TopConnectedFiles, 5) {
+			fmt.Fprintf(b, "  - `%s` - %s\n", file.Path, connectionCounts(file))
+		}
+	}
+	fmt.Fprintln(b)
+}
+
+func writeSearchBudgetHints(b *strings.Builder, a *models.Analysis) {
+	fmt.Fprintf(b, "## Search Budget Hints\n\n")
+	fmt.Fprintln(b, "- Prefer symbol/path searches inside the key directories above before scanning the whole repo.")
+	if len(a.Routes) > 0 {
+		fmt.Fprintln(b, "- For API behavior, start from the API Routes section and follow imports from each route file.")
+	}
+	if a.Env.UsesEnvVars {
+		fmt.Fprintln(b, "- For configuration questions, inspect the Environment Variables section before opening env-related files.")
+	}
+	if a.Tests.HasTestFiles || a.Tests.HasTestScript {
+		fmt.Fprintln(b, "- For expected behavior, use the Tests section to find representative test files and scripts.")
+	}
+	if len(a.Findings) > 0 {
+		fmt.Fprintln(b, "- For risk review, start with Findings; each item names the category and usually the relevant file.")
+	}
+	fmt.Fprintln(b)
+}
+
+func agentReadFirstFiles(a *models.Analysis) []models.FileRole {
+	if len(a.Structure.KeyFiles) == 0 {
+		return nil
+	}
+	priorities := []string{"entrypoint", "package manifest", "readme", "configuration", "route", "deployment", "test"}
+	var out []models.FileRole
+	seen := map[string]bool{}
+	for _, priority := range priorities {
+		for _, file := range a.Structure.KeyFiles {
+			if seen[file.Path] {
+				continue
+			}
+			role := strings.ToLower(file.Role + " " + file.Path)
+			if strings.Contains(role, priority) {
+				out = append(out, file)
+				seen[file.Path] = true
+				if len(out) == 8 {
+					return out
+				}
+			}
+		}
+	}
+	for _, file := range a.Structure.KeyFiles {
+		if seen[file.Path] {
+			continue
+		}
+		out = append(out, file)
+		if len(out) == 8 {
+			return out
+		}
+	}
+	return out
 }
 
 func writeProjectContext(b *strings.Builder, a *models.Analysis) {
@@ -308,7 +385,7 @@ func writeAIProjectSummary(b *strings.Builder, a *models.Analysis) {
 	if ai == nil {
 		return
 	}
-	fmt.Fprintf(b, "## AI Project Summary\n\n")
+	fmt.Fprintf(b, "## AI Notes\n\n")
 	fmt.Fprintln(b, DeterministicAISummary(a))
 	fmt.Fprintln(b)
 	if hasUsableLocalNotes(ai) {
@@ -378,7 +455,7 @@ func DeterministicAISummary(a *models.Analysis) string {
 	} else if len(stackTerms) > 0 {
 		stackPhrase = "a project using " + humanJoin(stackTerms)
 	}
-	parts := []string{fmt.Sprintf("StackMap detected this as %s.", withArticle(stackPhrase))}
+	parts := []string{fmt.Sprintf("StackIndex detected this as %s.", withArticle(stackPhrase))}
 	var readiness []string
 	if a.Tests.HasTestFiles || a.Tests.HasTestScript {
 		readiness = append(readiness, "tests")
@@ -405,7 +482,7 @@ func DeterministicAISummary(a *models.Analysis) string {
 	if len(a.Findings) == 0 {
 		parts = append(parts, "No actionable findings were detected.")
 	} else {
-		parts = append(parts, fmt.Sprintf("StackMap found %s worth reviewing.", findingSummary(a.Findings)))
+		parts = append(parts, fmt.Sprintf("StackIndex found %s worth reviewing.", findingSummary(a.Findings)))
 	}
 	return strings.Join(parts, " ")
 }
@@ -433,7 +510,7 @@ func writeIndentedBlock(b *strings.Builder, text string) {
 
 func writeTopFixes(b *strings.Builder, a *models.Analysis) {
 	if len(a.Findings) == 0 {
-		fmt.Fprintln(b, "- No actionable findings. Keep the report current before deployment reviews.")
+		fmt.Fprintln(b, "- No actionable findings. Keep the repo index current before handoffs or deeper agent work.")
 		fmt.Fprintln(b)
 		return
 	}

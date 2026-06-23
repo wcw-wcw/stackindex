@@ -1,6 +1,6 @@
 package analyzers
 
-import "github.com/will/stackmap/internal/models"
+import "github.com/wcw-wcw/stackindex/internal/models"
 
 func hasFile(files []models.FileInfo, path string) bool {
 	for _, file := range files {

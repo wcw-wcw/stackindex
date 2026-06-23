@@ -7,7 +7,7 @@ import (
 )
 
 func TestDesktopSettingsDefaultsWhenMissing(t *testing.T) {
-	session := &Session{settingsPath: filepath.Join(t.TempDir(), "StackMap", "settings.json")}
+	session := &Session{settingsPath: filepath.Join(t.TempDir(), "StackIndex", "settings.json")}
 
 	settings, err := session.GetDesktopSettings()
 	if err != nil {
@@ -19,7 +19,7 @@ func TestDesktopSettingsDefaultsWhenMissing(t *testing.T) {
 }
 
 func TestDesktopSettingsSaveAndRead(t *testing.T) {
-	session := &Session{settingsPath: filepath.Join(t.TempDir(), "StackMap", "settings.json")}
+	session := &Session{settingsPath: filepath.Join(t.TempDir(), "StackIndex", "settings.json")}
 
 	saved, err := session.SaveDesktopSettings(DesktopSettings{
 		DefaultRunAudit: false,
@@ -45,9 +45,9 @@ func TestDesktopSettingsSaveAndRead(t *testing.T) {
 func TestDesktopPathsUseSessionOverrides(t *testing.T) {
 	base := t.TempDir()
 	session := &Session{
-		recentProjectsPath: filepath.Join(base, "StackMap", "recent-projects.json"),
-		settingsPath:       filepath.Join(base, "StackMap", "settings.json"),
-		githubCacheRoot:    filepath.Join(base, "StackMap", "repos", "github.com"),
+		recentProjectsPath: filepath.Join(base, "StackIndex", "recent-projects.json"),
+		settingsPath:       filepath.Join(base, "StackIndex", "settings.json"),
+		githubCacheRoot:    filepath.Join(base, "StackIndex", "repos", "github.com"),
 	}
 
 	paths, err := session.GetDesktopPaths()
@@ -61,8 +61,8 @@ func TestDesktopPathsUseSessionOverrides(t *testing.T) {
 
 func TestClearGitHubCacheOnlyClearsSafeRoot(t *testing.T) {
 	base := t.TempDir()
-	root := filepath.Join(base, "StackMap", "repos", "github.com")
-	keep := filepath.Join(base, "StackMap", "repos", "not-github", "keep.txt")
+	root := filepath.Join(base, "StackIndex", "repos", "github.com")
+	keep := filepath.Join(base, "StackIndex", "repos", "not-github", "keep.txt")
 	remove := filepath.Join(root, "owner", "repo", "file.txt")
 	if err := os.MkdirAll(filepath.Dir(remove), 0755); err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestClearGitHubCacheRejectsUnsafeRoot(t *testing.T) {
 }
 
 func TestGitHubRepoCachePathUsesSessionRoot(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "StackMap", "repos", "github.com")
+	root := filepath.Join(t.TempDir(), "StackIndex", "repos", "github.com")
 	session := &Session{githubCacheRoot: root}
 
 	got, err := session.githubRepoCachePath("owner", "repo")

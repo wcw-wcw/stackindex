@@ -1,4 +1,4 @@
-module github.com/will/stackmap
+module github.com/wcw-wcw/stackindex
 
 go 1.22
 

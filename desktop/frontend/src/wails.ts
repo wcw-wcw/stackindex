@@ -239,7 +239,7 @@ declare global {
           OpenMarkdownReport(request: PathActionRequest): Promise<void>;
           RevealProjectFolder(request: PathActionRequest): Promise<void>;
           RevealSnapshotFolder(request: PathActionRequest): Promise<void>;
-          RevealStackMapFolder(request: PathActionRequest): Promise<void>;
+          RevealStackIndexFolder(request: PathActionRequest): Promise<void>;
           RemoveRecentProject(path: string): Promise<void>;
           SaveDesktopSettings(settings: DesktopSettings): Promise<DesktopSettings>;
         };
@@ -304,8 +304,8 @@ export function revealProjectFolder(request: PathActionRequest) {
   return backend().RevealProjectFolder(request);
 }
 
-export function revealStackMapFolder(request: PathActionRequest) {
-  return backend().RevealStackMapFolder(request);
+export function revealStackIndexFolder(request: PathActionRequest) {
+  return backend().RevealStackIndexFolder(request);
 }
 
 export function revealSnapshotFolder(request: PathActionRequest) {

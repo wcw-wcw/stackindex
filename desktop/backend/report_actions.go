@@ -32,16 +32,16 @@ func (s *Session) RevealProjectFolder(ctx context.Context, request PathActionReq
 	return revealPath(ctx, path)
 }
 
-func (s *Session) RevealStackMapFolder(ctx context.Context, request PathActionRequest) error {
+func (s *Session) RevealStackIndexFolder(ctx context.Context, request PathActionRequest) error {
 	projectPath, err := validateExistingDir(request.Path, "project folder")
 	if err != nil {
 		return err
 	}
-	stackmapPath, err := validateExistingDir(filepath.Join(projectPath, ".stackmap"), ".stackmap folder")
+	stackindexPath, err := validateExistingDir(filepath.Join(projectPath, ".stackindex"), ".stackindex folder")
 	if err != nil {
 		return err
 	}
-	return revealPath(ctx, stackmapPath)
+	return revealPath(ctx, stackindexPath)
 }
 
 func (s *Session) RevealSnapshotFolder(ctx context.Context, request PathActionRequest) error {
@@ -159,7 +159,7 @@ func buildCLICommand(request CLICommandRequest) (string, error) {
 		return "", errors.New("project path is required")
 	}
 
-	args := []string{"stackmap", "analyze", quoteCLIArg(target)}
+	args := []string{"stackindex", "analyze", quoteCLIArg(target)}
 	if auditWasRun(request.AuditStatus) {
 		args = append(args, "--audit")
 	}

@@ -185,7 +185,7 @@ func defaultRecentProjectsPath() string {
 	if err != nil || strings.TrimSpace(configDir) == "" {
 		configDir = os.TempDir()
 	}
-	return filepath.Join(configDir, "StackMap", "recent-projects.json")
+	return filepath.Join(configDir, "StackIndex", "recent-projects.json")
 }
 
 func normalizeProjectPath(path string) (string, error) {

@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
-const noPreviousSnapshotMessage = "No previous snapshot yet. Run StackMap again after another analysis to see changes."
+const noPreviousSnapshotMessage = "No previous snapshot yet. Run StackIndex again after another analysis to see changes."
 
 func AttachChangeSummary(root string, current *models.Analysis) error {
 	summary, err := BuildChangeSummary(root, current)

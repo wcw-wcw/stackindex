@@ -182,7 +182,7 @@ func (s *Session) validateRefreshTarget(repo githubRepo) error {
 		return err
 	}
 	if !pathInside(cleanTarget, cleanRoot) {
-		return errors.New("refusing to refresh a cached GitHub path outside the StackMap GitHub cache root")
+		return errors.New("refusing to refresh a cached GitHub path outside the StackIndex GitHub cache root")
 	}
 	if _, err := os.Stat(filepath.Join(cleanTarget, ".git")); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -258,7 +258,7 @@ func validGitHubSegment(value string) bool {
 func githubCachePath(owner, repo string) (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil || strings.TrimSpace(cacheDir) == "" {
-		return "", errors.New("could not determine local StackMap cache directory")
+		return "", errors.New("could not determine local StackIndex cache directory")
 	}
 	return githubCachePathFromBase(cacheDir, owner, repo)
 }
@@ -274,9 +274,9 @@ func githubCachePathFromBase(base, owner, repo string) (string, error) {
 func githubCacheRootFromBase(base string) (string, error) {
 	target := strings.TrimSpace(base)
 	if target == "" {
-		return "", errors.New("could not determine local StackMap cache directory")
+		return "", errors.New("could not determine local StackIndex cache directory")
 	}
-	return filepath.Join(target, "StackMap", "repos", "github.com"), nil
+	return filepath.Join(target, "StackIndex", "repos", "github.com"), nil
 }
 
 func githubCachePathFromRoot(root, owner, repo string) (string, error) {
@@ -285,7 +285,7 @@ func githubCachePathFromRoot(root, owner, repo string) (string, error) {
 	}
 	target := strings.TrimSpace(root)
 	if target == "" {
-		return "", errors.New("could not determine local StackMap GitHub cache directory")
+		return "", errors.New("could not determine local StackIndex GitHub cache directory")
 	}
 	return filepath.Join(target, owner, repo), nil
 }

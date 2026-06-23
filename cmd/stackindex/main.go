@@ -9,40 +9,40 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/will/stackmap/internal/app"
-	"github.com/will/stackmap/internal/audit"
-	"github.com/will/stackmap/internal/models"
-	"github.com/will/stackmap/internal/qa"
-	"github.com/will/stackmap/internal/report"
-	"github.com/will/stackmap/internal/tui"
+	"github.com/wcw-wcw/stackindex/internal/app"
+	"github.com/wcw-wcw/stackindex/internal/audit"
+	"github.com/wcw-wcw/stackindex/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/qa"
+	"github.com/wcw-wcw/stackindex/internal/report"
+	"github.com/wcw-wcw/stackindex/internal/tui"
 )
 
-const usage = `StackMap - local-first codebase analyzer
+const usage = `StackIndex - local-first codebase analyzer
 
 Usage:
-  stackmap
-  stackmap analyze [path] [--json] [--no-tui] [--ai] [--model llama3.2:3b] [--ai-debug]
-  stackmap audit [path] [--json] [--allow-medium] [--allow-missing-tests] [--fail-on-low] [--ai]
-  stackmap ask [path] "question" [--json] [--ai] [--model llama3.2:3b] [--ai-debug]
-  stackmap --help
+  stackindex
+  stackindex analyze [path] [--json] [--no-tui] [--ai] [--model llama3.2:3b] [--ai-debug]
+  stackindex audit [path] [--json] [--allow-medium] [--allow-missing-tests] [--fail-on-low] [--ai]
+  stackindex ask [path] "question" [--json] [--ai] [--model llama3.2:3b] [--ai-debug]
+  stackindex --help
 
 Examples:
-  stackmap analyze .
-  stackmap analyze ./path-to-project --no-tui
-  stackmap analyze . --json
-  stackmap analyze . --ai --model llama3.2:3b
-  stackmap audit .
-  stackmap ask . "What is this project for?"
-  stackmap ask . "Where are the API routes?"
+  stackindex analyze .
+  stackindex analyze ./path-to-project --no-tui
+  stackindex analyze . --json
+  stackindex analyze . --ai --model llama3.2:3b
+  stackindex audit .
+  stackindex ask . "What is this project for?"
+  stackindex ask . "Where are the API routes?"
 
-Local Ollama model behavior varies. By default StackMap tries llama3.2:3b,
-then qwen:7b, then the deterministic StackMap summary.
+Local Ollama model behavior varies. By default StackIndex tries llama3.2:3b,
+then qwen:7b, then the deterministic StackIndex summary.
 
 Audit mode is deterministic for CI: it fails only on static high or medium
 findings and deployment-readiness blockers. Optional AI report content never
 affects the audit exit code.
 
-Ask mode answers from StackMap's deterministic local analysis first. With
+Ask mode answers from StackIndex's deterministic local analysis first. With
 --ai, local Ollama may polish the bounded evidence, but AI is never required.
 `
 
@@ -54,7 +54,7 @@ func main() {
 		if errors.As(err, &failure) {
 			os.Exit(failure.exitCode)
 		}
-		fmt.Fprintln(os.Stderr, "stackmap:", err)
+		fmt.Fprintln(os.Stderr, "stackindex:", err)
 		os.Exit(1)
 	}
 }
@@ -84,14 +84,14 @@ func ask(args []string) error {
 	fs.SetOutput(os.Stderr)
 	jsonOut := fs.Bool("json", false, "print Q&A result JSON to stdout")
 	enableAI := fs.Bool("ai", false, "enable optional local Ollama synthesis from bounded Q&A evidence")
-	aiDebug := fs.Bool("ai-debug", false, "write local AI Q&A diagnostics under .stackmap/ai-debug/ask")
+	aiDebug := fs.Bool("ai-debug", false, "write local AI Q&A diagnostics under .stackindex/ai-debug/ask")
 	model := fs.String("model", "", "Ollama model to use when --ai is enabled; default tries llama3.2:3b then qwen:7b")
 	_ = fs.Bool("no-tui", false, "accepted for compatibility; ask mode never launches the TUI")
 	if err := fs.Parse(normalizeAskArgs(args)); err != nil {
 		return err
 	}
 	if fs.NArg() == 0 {
-		return errors.New(`ask requires a question, for example: stackmap ask . "What is this project for?"`)
+		return errors.New(`ask requires a question, for example: stackindex ask . "What is this project for?"`)
 	}
 
 	target := "."
@@ -143,7 +143,7 @@ func analyze(args []string, auditMode bool) error {
 	allowMissingTests := fs.Bool("allow-missing-tests", false, "treat missing tests as an audit warning instead of a blocker")
 	failOnLow := fs.Bool("fail-on-low", false, "treat low findings as audit blockers")
 	enableAI := fs.Bool("ai", false, "enable optional local Ollama analysis")
-	aiDebug := fs.Bool("ai-debug", false, "write local AI prompt/response diagnostics under .stackmap/ai-debug")
+	aiDebug := fs.Bool("ai-debug", false, "write local AI prompt/response diagnostics under .stackindex/ai-debug")
 	model := fs.String("model", "", "Ollama model to use when --ai is enabled; default tries llama3.2:3b then qwen:7b")
 	if err := fs.Parse(normalizeAnalyzeArgs(args)); err != nil {
 		return err
@@ -174,7 +174,7 @@ func analyze(args []string, auditMode bool) error {
 	root := result.Root
 	analysis := result.Analysis
 	if analysis.AI != nil && analysis.AI.Warning != "" {
-		fmt.Fprintf(os.Stderr, "stackmap: %s\n", analysis.AI.Warning)
+		fmt.Fprintf(os.Stderr, "stackindex: %s\n", analysis.AI.Warning)
 	}
 
 	if *jsonOut {
@@ -209,11 +209,11 @@ func analyze(args []string, auditMode bool) error {
 }
 
 func printExportSummary(root string) {
-	outDir := filepath.Join(root, ".stackmap")
-	fmt.Printf("StackMap analysis exported to %s\n", outDir)
+	outDir := filepath.Join(root, ".stackindex")
+	fmt.Printf("StackIndex analysis exported to %s\n", outDir)
 	fmt.Printf("JSON: %s\n", filepath.Join(outDir, "analysis.json"))
-	fmt.Printf("Markdown: %s\n", filepath.Join(outDir, "reports", "repo-report.md"))
-	fmt.Println("Note: .stackmap is a hidden folder on macOS Finder. Press Cmd+Shift+. in Finder to show hidden files.")
+	fmt.Printf("Markdown: %s\n", filepath.Join(outDir, "reports", "repo-index.md"))
+	fmt.Println("Note: .stackindex is a hidden folder on macOS Finder. Press Cmd+Shift+. in Finder to show hidden files.")
 }
 
 type auditFailure struct {
@@ -240,15 +240,15 @@ func printAuditSummary(analysis *models.Analysis) {
 	if result.Passed {
 		status = "passed"
 	}
-	fmt.Printf("StackMap audit: %s\n", status)
+	fmt.Printf("StackIndex audit: %s\n", status)
 	if !result.Passed {
 		fmt.Println()
 		for _, reason := range result.Reasons {
 			fmt.Printf("* %s\n", reason)
 		}
 	}
-	fmt.Printf("Report: %s\n", filepath.Join(".stackmap", "reports", "repo-report.md"))
-	fmt.Printf("JSON: %s\n", filepath.Join(".stackmap", "analysis.json"))
+	fmt.Printf("Report: %s\n", filepath.Join(".stackindex", "reports", "repo-index.md"))
+	fmt.Printf("JSON: %s\n", filepath.Join(".stackindex", "analysis.json"))
 }
 
 func normalizeAnalyzeArgs(args []string) []string {

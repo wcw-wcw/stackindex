@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func AnalyzeTests(files []models.FileInfo, pkg *models.PackageInfo) (models.TestAnalysis, []models.Finding) {

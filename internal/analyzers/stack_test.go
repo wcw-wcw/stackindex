@@ -3,8 +3,8 @@ package analyzers
 import (
 	"testing"
 
-	"github.com/will/stackmap/internal/models"
-	"github.com/will/stackmap/internal/scanner"
+	"github.com/wcw-wcw/stackindex/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/scanner"
 )
 
 func TestDetectStackIncludesNeonPostgres(t *testing.T) {

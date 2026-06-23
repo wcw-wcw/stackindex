@@ -66,7 +66,7 @@ func (s *Session) ClearGitHubCache() error {
 		return err
 	}
 	if !isSafeGitHubCacheRoot(cleanRoot) {
-		return errors.New("refusing to clear a path outside the StackMap GitHub cache root")
+		return errors.New("refusing to clear a path outside the StackIndex GitHub cache root")
 	}
 	if err := os.RemoveAll(cleanRoot); err != nil {
 		return err
@@ -114,7 +114,7 @@ func defaultDesktopSettingsPath() string {
 	if err != nil || strings.TrimSpace(configDir) == "" {
 		configDir = os.TempDir()
 	}
-	return filepath.Join(configDir, "StackMap", "settings.json")
+	return filepath.Join(configDir, "StackIndex", "settings.json")
 }
 
 func (s *Session) githubCacheRootPath() (string, error) {
@@ -123,7 +123,7 @@ func (s *Session) githubCacheRootPath() (string, error) {
 	}
 	cacheDir, err := os.UserCacheDir()
 	if err != nil || strings.TrimSpace(cacheDir) == "" {
-		return "", errors.New("could not determine local StackMap cache directory")
+		return "", errors.New("could not determine local StackIndex cache directory")
 	}
 	return githubCacheRootFromBase(cacheDir)
 }
@@ -134,7 +134,7 @@ func isSafeGitHubCacheRoot(path string) bool {
 	if len(parts) < 3 {
 		return false
 	}
-	return parts[len(parts)-3] == "StackMap" && parts[len(parts)-2] == "repos" && parts[len(parts)-1] == "github.com"
+	return parts[len(parts)-3] == "StackIndex" && parts[len(parts)-2] == "repos" && parts[len(parts)-1] == "github.com"
 }
 
 func splitPath(path string) []string {

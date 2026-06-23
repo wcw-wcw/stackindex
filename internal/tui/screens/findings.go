@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func Findings(a *models.Analysis, cursor int) string {

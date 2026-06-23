@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestListOllamaModelsSuccess(t *testing.T) {
@@ -570,7 +570,7 @@ func TestPlainTextModelResponsePassesRelevanceValidation(t *testing.T) {
 			Frameworks: []string{"Bubble Tea"},
 		},
 	}
-	text := "This Go CLI uses Bubble Tea for a local terminal workflow.\n\n- StackMap detected Go source files.\n- Keep reports current before handoff."
+	text := "This Go CLI uses Bubble Tea for a local terminal workflow.\n\n- StackIndex detected Go source files.\n- Keep reports current before handoff."
 	summary := &models.AISummary{Enabled: true, Model: "llama3.2:3b"}
 	applyModelResponse(summary, text, analysis)
 

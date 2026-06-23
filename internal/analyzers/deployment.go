@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func AnalyzeDeployment(root string, files []models.FileInfo, pkg *models.PackageInfo, env models.EnvAnalysis, routes []models.RouteInfo) (models.DeploymentAnalysis, []models.Finding) {

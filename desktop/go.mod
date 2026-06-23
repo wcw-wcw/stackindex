@@ -1,10 +1,10 @@
-module github.com/will/stackmap/desktop
+module github.com/wcw-wcw/stackindex/desktop
 
 go 1.22.0
 
 require (
 	github.com/wailsapp/wails/v2 v2.12.0
-	github.com/will/stackmap v0.0.0
+	github.com/wcw-wcw/stackindex v0.0.0
 )
 
 require (
@@ -38,4 +38,4 @@ require (
 	golang.org/x/text v0.22.0 // indirect
 )
 
-replace github.com/will/stackmap => ..
+replace github.com/wcw-wcw/stackindex => ..

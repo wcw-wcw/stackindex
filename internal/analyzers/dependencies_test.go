@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestAnalyzeDependencyGraphExtractsAndResolvesJSTSImports(t *testing.T) {

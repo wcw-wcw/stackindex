@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestRecentProjectsUpsertDedupeOrderAndCap(t *testing.T) {
@@ -93,8 +93,8 @@ func TestRecentProjectsReadsLegacyEntries(t *testing.T) {
     "routes": 1,
     "tests": 2,
     "findings": {"high": 1},
-    "jsonReportPath": "` + filepath.ToSlash(filepath.Join(root, ".stackmap", "analysis.json")) + `",
-    "mdReportPath": "` + filepath.ToSlash(filepath.Join(root, ".stackmap", "reports", "repo-report.md")) + `"
+    "jsonReportPath": "` + filepath.ToSlash(filepath.Join(root, ".stackindex", "analysis.json")) + `",
+    "mdReportPath": "` + filepath.ToSlash(filepath.Join(root, ".stackindex", "reports", "repo-index.md")) + `"
   }
 ]`)
 	if err := os.WriteFile(session.recentProjectsPath, data, 0644); err != nil {
@@ -161,7 +161,7 @@ func TestOpenExistingReportLoadsAnalysisAndAskWorks(t *testing.T) {
 	if !response.LoadedFromDisk || response.RepoName != "example" || response.AuditStatus != "passed" {
 		t.Fatalf("unexpected loaded response: %#v", response)
 	}
-	if response.JSONReportPath != filepath.Join(root, ".stackmap", "analysis.json") {
+	if response.JSONReportPath != filepath.Join(root, ".stackindex", "analysis.json") {
 		t.Fatalf("unexpected report path: %s", response.JSONReportPath)
 	}
 
@@ -205,19 +205,19 @@ func TestOpenExistingReportMissingReportReturnsCleanError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing report error")
 	}
-	if want := "no previous StackMap report found"; !strings.HasPrefix(err.Error(), want) {
+	if want := "no previous StackIndex report found"; !strings.HasPrefix(err.Error(), want) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func testSession(t *testing.T) *Session {
 	t.Helper()
-	return &Session{recentProjectsPath: filepath.Join(t.TempDir(), "StackMap", "recent-projects.json")}
+	return &Session{recentProjectsPath: filepath.Join(t.TempDir(), "StackIndex", "recent-projects.json")}
 }
 
 func writeAnalysisJSON(t *testing.T, root string, analysis *models.Analysis) {
 	t.Helper()
-	outDir := filepath.Join(root, ".stackmap")
+	outDir := filepath.Join(root, ".stackindex")
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 const (
@@ -45,7 +45,7 @@ var purposeRules = []purposeRule{
 	{purpose: "Twitter-style social application", fallback: "Social web application", terms: []string{"tweet", "tweets", "post", "posts", "repost", "reposts", "follow", "followers", "following", "timeline", "hashtag", "hashtags", "mention", "mentions", "profile", "profiles"}},
 	{purpose: "Stock monitoring and alerting application", fallback: "Stock monitoring web application", terms: []string{"stock", "stocks", "market", "markets", "watchlist", "watchlists", "alert", "alerts", "alpaca", "spy", "trading", "candles", "ticker", "tickers"}},
 	{purpose: "Anime recommendation/discovery application", fallback: "Anime discovery web application", terms: []string{"anime", "recommendation", "recommendations", "recommend", "myanimelist", "mal", "catalog", "embeddings", "embedding", "pgvector", "similar", "similarity"}},
-	{purpose: "Go CLI/TUI repository analysis tool", fallback: "Developer tooling application", terms: []string{"stackmap", "cli", "tui", "analyze repo", "analyze repository", "audit", "codebase", "stack detection", "report", "reports", "deployment readiness"}},
+	{purpose: "Go CLI/TUI repository analysis tool", fallback: "Developer tooling application", terms: []string{"stackindex", "cli", "tui", "analyze repo", "analyze repository", "audit", "codebase", "stack detection", "report", "reports", "deployment readiness"}},
 }
 
 var readmeNoisePrefixes = []string{"[![", "![", "<img", "<picture", "<!--"}
@@ -243,7 +243,7 @@ func inferPurpose(context models.ProjectContext, structure models.StructureMap, 
 	hasPrimaryEvidence := best.readmeScore >= 4 || best.packageScore >= 3
 	if !hasPrimaryEvidence {
 		if generic != "" {
-			return generic, "low", []string{"Specific domain signals were weak or only came from supporting files, so StackMap used a broad purpose instead."}
+			return generic, "low", []string{"Specific domain signals were weak or only came from supporting files, so StackIndex used a broad purpose instead."}
 		}
 		return "Unknown project purpose", "low", []string{"Specific domain signals were weak or only came from supporting files."}
 	}

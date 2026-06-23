@@ -3,7 +3,7 @@ package analyzers
 import (
 	"testing"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestExtractExpressRoutes(t *testing.T) {

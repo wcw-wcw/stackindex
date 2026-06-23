@@ -3,7 +3,7 @@ package scanner
 import "testing"
 
 func TestShouldIgnoreDir(t *testing.T) {
-	for _, dir := range []string{".git", "node_modules", ".stackmap"} {
+	for _, dir := range []string{".git", "node_modules", ".stackindex", ".gocache"} {
 		if !ShouldIgnoreDir(dir) {
 			t.Fatalf("expected %s to be ignored", dir)
 		}

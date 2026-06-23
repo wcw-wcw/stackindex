@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func DetectStack(root string, files []models.FileInfo, pkg *models.PackageInfo) models.StackInfo {

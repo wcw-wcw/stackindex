@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestParseReadmeContextExtractsTitleSummaryAndSignals(t *testing.T) {
@@ -138,11 +138,11 @@ A personal portfolio built with Next.js, TypeScript, Tailwind CSS, and Vercel to
 	}
 }
 
-func TestAnalyzeProjectContextInfersStackMapPurpose(t *testing.T) {
+func TestAnalyzeProjectContextInfersStackIndexPurpose(t *testing.T) {
 	root := tempProject(t, map[string]string{
-		"README.md":                     "# StackMap\n\nStackMap is a Go CLI/TUI repository analysis tool that scans codebases, runs audit checks, and writes Markdown/JSON reports.",
-		"go.mod":                        "module github.com/will/stackmap\n\ngo 1.22\n",
-		"cmd/stackmap/main.go":          "package main\nfunc main() {}",
+		"README.md":                     "# StackIndex\n\nStackIndex is a Go CLI/TUI repository analysis tool that scans codebases, runs audit checks, and writes Markdown/JSON reports.",
+		"go.mod":                        "module github.com/wcw-wcw/stackindex\n\ngo 1.22\n",
+		"cmd/stackindex/main.go":        "package main\nfunc main() {}",
 		"internal/analyzers/analyze.go": "package analyzers\n",
 		"internal/tui/app.go":           "package tui\n",
 	})
@@ -153,7 +153,7 @@ func TestAnalyzeProjectContextInfersStackMapPurpose(t *testing.T) {
 	if analysis.Context.Purpose != "Go CLI/TUI repository analysis tool" {
 		t.Fatalf("Purpose = %q", analysis.Context.Purpose)
 	}
-	if analysis.PackageInfo == nil || analysis.PackageInfo.ModuleName != "github.com/will/stackmap" {
+	if analysis.PackageInfo == nil || analysis.PackageInfo.ModuleName != "github.com/wcw-wcw/stackindex" {
 		t.Fatalf("Go module metadata missing: %+v", analysis.PackageInfo)
 	}
 }
@@ -234,7 +234,7 @@ func TestAnalyzeStructureMapDetectsDirectoryAndKeyFileRoles(t *testing.T) {
 		{Path: "src/lib/db.ts", Kind: models.FileKindSource},
 		{Path: "scripts/worker.mjs", Kind: models.FileKindSource},
 		{Path: "db/migrations/001_init.sql", Kind: models.FileKindConfig},
-		{Path: "cmd/stackmap/main.go", Kind: models.FileKindSource},
+		{Path: "cmd/stackindex/main.go", Kind: models.FileKindSource},
 	}
 	structure := AnalyzeStructureMap(files, []models.RouteInfo{{Method: "GET", Path: "/api/health", SourceFile: "src/app/api/health/route.ts"}})
 	if !hasDirectoryRole(structure.Directories, "src/app/api/", "Next.js API route handlers") {
@@ -246,7 +246,7 @@ func TestAnalyzeStructureMapDetectsDirectoryAndKeyFileRoles(t *testing.T) {
 	if !hasFileRole(structure.KeyFiles, "src/app/api/health/route.ts", "Health endpoint implementation") {
 		t.Fatalf("missing health key file: %+v", structure.KeyFiles)
 	}
-	if !hasFileRole(structure.KeyFiles, "cmd/stackmap/main.go", "Main CLI entrypoint") {
+	if !hasFileRole(structure.KeyFiles, "cmd/stackindex/main.go", "Main CLI entrypoint") {
 		t.Fatalf("missing CLI key file: %+v", structure.KeyFiles)
 	}
 }

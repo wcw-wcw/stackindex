@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/will/stackmap/internal/ai"
-	stackmapapp "github.com/will/stackmap/internal/app"
-	"github.com/will/stackmap/internal/models"
-	stackmapreport "github.com/will/stackmap/internal/report"
+	"github.com/wcw-wcw/stackindex/internal/ai"
+	stackindexapp "github.com/wcw-wcw/stackindex/internal/app"
+	"github.com/wcw-wcw/stackindex/internal/models"
+	stackindexreport "github.com/wcw-wcw/stackindex/internal/report"
 )
 
 type AnalyzeRequest struct {
@@ -214,7 +214,7 @@ func (s *Session) analyzeProject(ctx context.Context, request AnalyzeRequest, so
 	if err != nil {
 		return nil, err
 	}
-	result, err := stackmapapp.Analyze(ctx, stackmapapp.AnalyzeOptions{
+	result, err := stackindexapp.Analyze(ctx, stackindexapp.AnalyzeOptions{
 		Path:     absPath,
 		RunAudit: request.RunAudit,
 		UseAI:    request.UseAI,
@@ -223,7 +223,7 @@ func (s *Session) analyzeProject(ctx context.Context, request AnalyzeRequest, so
 	if err != nil {
 		return nil, err
 	}
-	if err := stackmapapp.ExportReports(result.Root, result.Analysis); err != nil {
+	if err := stackindexapp.ExportReports(result.Root, result.Analysis); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
@@ -255,17 +255,17 @@ func (s *Session) OpenExistingReport(path string) (*AnalyzeResponse, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("project path is not a directory: %s", absPath)
 	}
-	reportPath := filepath.Join(absPath, ".stackmap", "analysis.json")
+	reportPath := filepath.Join(absPath, ".stackindex", "analysis.json")
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("no previous StackMap report found at %s", reportPath)
+			return nil, fmt.Errorf("no previous StackIndex report found at %s", reportPath)
 		}
 		return nil, err
 	}
 	var analysis models.Analysis
 	if err := json.Unmarshal(data, &analysis); err != nil {
-		return nil, fmt.Errorf("could not read previous StackMap report at %s: %w", reportPath, err)
+		return nil, fmt.Errorf("could not read previous StackIndex report at %s: %w", reportPath, err)
 	}
 	analysis.RepoPath = absPath
 	if strings.TrimSpace(analysis.RepoName) == "" {
@@ -295,7 +295,7 @@ func (s *Session) AskQuestion(ctx context.Context, request AskRequest) (*AskResp
 	if analysis == nil || strings.TrimSpace(root) == "" {
 		return nil, errors.New("Analyze a project before asking questions.")
 	}
-	result, err := stackmapapp.Ask(ctx, analysis, stackmapapp.AskOptions{
+	result, err := stackindexapp.Ask(ctx, analysis, stackindexapp.AskOptions{
 		Root:     root,
 		Question: question,
 		UseAI:    false,
@@ -346,19 +346,19 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 		Deployment:     append([]string{}, analysis.Stack.Deployment...),
 		AuditStatus:    "not run",
 		AIStatus:       "not requested",
-		JSONReportPath: filepath.Join(root, ".stackmap", "analysis.json"),
-		MDReportPath:   filepath.Join(root, ".stackmap", "reports", "repo-report.md"),
+		JSONReportPath: filepath.Join(root, ".stackindex", "analysis.json"),
+		MDReportPath:   filepath.Join(root, ".stackindex", "reports", "repo-index.md"),
 		Context:        buildContextView(analysis.Context),
 		Audit:          AuditView{Status: "not run"},
 		APIRoutes:      buildRouteViews(analysis.Routes),
 		TestSummary:    buildTestsView(analysis.Tests),
 		DeploymentInfo: buildDeploymentView(analysis.Deployment),
-		AI:             AIView{Status: "not requested", DeterministicSummary: stackmapreport.DeterministicAISummary(analysis)},
+		AI:             AIView{Status: "not requested", DeterministicSummary: stackindexreport.DeterministicAISummary(analysis)},
 	}
 	response.Reports = ReportsView{
 		JSONPath:     response.JSONReportPath,
 		MarkdownPath: response.MDReportPath,
-		Directory:    filepath.Join(root, ".stackmap"),
+		Directory:    filepath.Join(root, ".stackindex"),
 		History:      buildSnapshotViews(root),
 		Changes:      buildChangeView(analysis.Changes),
 	}
@@ -390,7 +390,7 @@ func BuildAnalyzeResponse(root string, analysis *models.Analysis, request Analyz
 func buildChangeView(changes *models.ChangeSummary) ChangeView {
 	if changes == nil {
 		return ChangeView{
-			Message:          "No previous snapshot yet. Run StackMap again after another analysis to see changes.",
+			Message:          "No previous snapshot yet. Run StackIndex again after another analysis to see changes.",
 			SummaryBullets:   []string{},
 			AddedRoutes:      []string{},
 			RemovedRoutes:    []string{},
@@ -418,7 +418,7 @@ func buildChangeView(changes *models.ChangeSummary) ChangeView {
 }
 
 func buildSnapshotViews(root string) []SnapshotView {
-	snapshots, err := stackmapreport.ListSnapshots(root)
+	snapshots, err := stackindexreport.ListSnapshots(root)
 	if err != nil {
 		return []SnapshotView{}
 	}
@@ -569,7 +569,7 @@ func buildDeploymentView(deployment models.DeploymentAnalysis) DeploymentView {
 func buildAIView(analysis *models.Analysis, status string) AIView {
 	view := AIView{
 		Status:               status,
-		DeterministicSummary: stackmapreport.DeterministicAISummary(analysis),
+		DeterministicSummary: stackindexreport.DeterministicAISummary(analysis),
 	}
 	if analysis.AI == nil {
 		return view

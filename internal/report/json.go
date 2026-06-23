@@ -5,11 +5,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func WriteJSON(root string, analysis *models.Analysis) error {
-	outDir := filepath.Join(root, ".stackmap")
+	outDir := filepath.Join(root, ".stackindex")
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return err
 	}

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 const DefaultModel = "llama3.2:3b"
@@ -679,13 +679,13 @@ func BuildCompactInput(a *models.Analysis) AIFactsheet {
 
 func promptFor(a *models.Analysis) string {
 	data, _ := json.MarshalIndent(BuildAIFactsheet(a), "", "  ")
-	return `You are StackMap, a local-only software engineering documentation assistant.
+	return `You are StackIndex, a local-only software engineering documentation assistant.
 
-Write a concise plain-language project summary for a StackMap report. Do not return JSON.
+Write a concise plain-language project summary for a StackIndex report. Do not return JSON.
 Use this exact shape:
 One short paragraph, then 2 to 4 Markdown bullets.
 
-You are summarizing only the StackMap analysis factsheet below, not answering questions about individual file paths.
+You are summarizing only the StackIndex analysis factsheet below, not answering questions about individual file paths.
 Do not explain Unix paths, source files, package names, or general programming concepts.
 Do not list or define environment variables.
 Use only the provided factsheet. Do not invent architecture, services, security issues, routes, dependencies, migrations, databases, monorepo structure, or deployment behavior. Do not claim to have read source files.
@@ -695,7 +695,7 @@ Mention at least one exact detected stack term from the factsheet, for example a
 Keep the summary practical and bounded. Avoid generic advice unless it is supported by findings in the factsheet.
 Do not mention a connection, entrypoint, database, migration, worker, route, or shared module unless it appears in the factsheet.
 
-StackMap analysis factsheet:
+StackIndex analysis factsheet:
 ` + string(data)
 }
 
@@ -704,11 +704,11 @@ func refinementPromptFor(a *models.Analysis, previous, reason string) string {
 	if strings.TrimSpace(reason) == "" {
 		reason = "The previous response was missing, irrelevant, or included unsupported details."
 	}
-	return `Your previous response was not usable as StackMap local AI notes.
+	return `Your previous response was not usable as StackIndex local AI notes.
 
 Rewrite it as concise plain text or Markdown. Do not return JSON.
 Use this exact shape: one short paragraph, then 2 to 4 Markdown bullets.
-You are summarizing only the StackMap analysis factsheet below, not answering questions about individual file paths.
+You are summarizing only the StackIndex analysis factsheet below, not answering questions about individual file paths.
 Do not explain Unix paths, source files, package names, or general programming concepts.
 Do not list or define environment variables.
 Use only the factsheet below and do not invent architecture, services, security issues, routes, dependencies, migrations, databases, monorepo structure, or deployment behavior.
@@ -721,7 +721,7 @@ Why the previous response was rejected:
 Previous invalid response, for context only:
 ` + capText(previous, 1200) + `
 
-StackMap analysis factsheet:
+StackIndex analysis factsheet:
 ` + string(data)
 }
 
@@ -1006,55 +1006,55 @@ func markUnsupportedPlainClaims(summary *models.AISummary, text string, analysis
 func unsupportedStructuredClaimReason(text string, analysis *models.Analysis) string {
 	lower := strings.ToLower(text)
 	if strings.Contains(lower, "microservice") || strings.Contains(lower, "monolithic") || strings.Contains(lower, "server-side rendering") || strings.Contains(lower, "server side rendering") {
-		return "Model output described service topology, but StackMap does not detect service topology."
+		return "Model output described service topology, but StackIndex does not detect service topology."
 	}
 	if strings.Contains(lower, "monorepo") {
-		return "Model output described a monorepo, but StackMap does not detect repository topology."
+		return "Model output described a monorepo, but StackIndex does not detect repository topology."
 	}
 	if envVarNameRE.MatchString(text) {
-		return "Model output listed environment variable names, but StackMap AI notes only summarize environment readiness counts."
+		return "Model output listed environment variable names, but StackIndex AI notes only summarize environment readiness counts."
 	}
 	if mentionsFactsheetMeta(lower) {
-		return "Model output summarized StackMap factsheet field names instead of the project."
+		return "Model output summarized StackIndex factsheet field names instead of the project."
 	}
 	if mentionsDatabase(lower) && (analysis == nil || len(analysis.Stack.Databases) == 0) {
-		return "Model output mentioned database/storage details, but StackMap did not detect a database or storage layer."
+		return "Model output mentioned database/storage details, but StackIndex did not detect a database or storage layer."
 	}
 	if strings.Contains(lower, "migration") && (analysis == nil || !analysis.Deployment.HasMigrationFiles) {
-		return "Model output mentioned migrations, but StackMap did not detect migration files."
+		return "Model output mentioned migrations, but StackIndex did not detect migration files."
 	}
 	if strings.Contains(lower, "missing migration") && analysis != nil && analysis.Deployment.HasMigrationFiles {
-		return "Model output claimed migration files were missing, but StackMap detected migration files."
+		return "Model output claimed migration files were missing, but StackIndex detected migration files."
 	}
 	if mentionsMissingRequiredEnv(lower) && (analysis == nil || len(analysis.Env.MissingRequiredFromExample) == 0) {
-		return "Model output claimed required environment variables were missing, but StackMap did not detect missing required environment variables."
+		return "Model output claimed required environment variables were missing, but StackIndex did not detect missing required environment variables."
 	}
 	if mentionsSecurityFinding(lower) && !hasFindingCategory(analysis, "security") {
-		return "Model output mentioned security findings, but StackMap did not detect security findings."
+		return "Model output mentioned security findings, but StackIndex did not detect security findings."
 	}
 	if mentionsTestCoverageClaim(lower) {
-		return "Model output claimed test coverage, but StackMap only detects test files, test scripts, and test tooling."
+		return "Model output claimed test coverage, but StackIndex only detects test files, test scripts, and test tooling."
 	}
 	if mentionsMissingTests(lower) && analysis != nil && (analysis.Tests.HasTestFiles || analysis.Tests.HasTestScript) {
-		return "Model output claimed tests were missing or insufficient, but StackMap detected tests."
+		return "Model output claimed tests were missing or insufficient, but StackIndex detected tests."
 	}
 	if strings.Contains(lower, "strong testing") && (analysis == nil || (!analysis.Tests.HasTestFiles && !analysis.Tests.HasTestScript)) {
-		return "Model output claimed a strong testing posture, but StackMap did not detect tests."
+		return "Model output claimed a strong testing posture, but StackIndex did not detect tests."
 	}
 	if strings.Contains(lower, "deployment-ready") || strings.Contains(lower, "production-ready") {
-		return "Model output claimed deployment or production readiness, but StackMap only reports readiness signals."
+		return "Model output claimed deployment or production readiness, but StackIndex only reports readiness signals."
 	}
 	if strings.Contains(lower, "currently deployed") || strings.Contains(lower, "deployed on ") || strings.Contains(lower, "deployed to ") {
-		return "Model output claimed current deployment state, but StackMap only detects deployment targets and configuration signals."
+		return "Model output claimed current deployment state, but StackIndex only detects deployment targets and configuration signals."
 	}
 	if strings.Contains(lower, "requires ") {
-		return "Model output claimed project requirements, but StackMap only reports detected project facts."
+		return "Model output claimed project requirements, but StackIndex only reports detected project facts."
 	}
 	if strings.Contains(lower, "reachable") {
-		return "Model output claimed runtime reachability, but StackMap does not execute or probe the application."
+		return "Model output claimed runtime reachability, but StackIndex does not execute or probe the application."
 	}
 	if strings.Contains(lower, "critical nature") || strings.Contains(lower, "mission-critical") || strings.Contains(lower, "business-critical") {
-		return "Model output characterized project criticality, but StackMap does not detect business or operational criticality."
+		return "Model output characterized project criticality, but StackIndex does not detect business or operational criticality."
 	}
 	return ""
 }

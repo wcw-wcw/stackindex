@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestProjectPurposeQuestion(t *testing.T) {
@@ -229,7 +229,7 @@ func TestEnvironmentQuestion(t *testing.T) {
 
 func TestUnsupportedQuestionFallback(t *testing.T) {
 	result := AnswerDeterministically(fixtureAnalysis(), "Which cloud region is best?")
-	assertAnswerContains(t, result, "StackMap ask can answer")
+	assertAnswerContains(t, result, "StackIndex ask can answer")
 	if result.Confidence != ConfidenceLow {
 		t.Fatalf("confidence = %q, want low", result.Confidence)
 	}
@@ -274,7 +274,7 @@ func TestAIPromptFactsheetBoundedness(t *testing.T) {
 	deterministic := AnswerDeterministically(fixtureAnalysis(), "What env vars are configured?")
 	factsheet := BuildFactsheet(deterministic)
 	prompt := PromptFor(deterministic, factsheet)
-	if !strings.Contains(prompt, "using only the deterministic StackMap factsheet") {
+	if !strings.Contains(prompt, "using only the deterministic StackIndex factsheet") {
 		t.Fatalf("prompt missing boundedness instruction:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "DATABASE_URL=super-secret") {
@@ -305,7 +305,7 @@ func TestWriteLatestAndAppendHistory(t *testing.T) {
 		t.Fatalf("WriteLatestAndAppendHistory latestErr=%v historyErr=%v", latestErr, historyErr)
 	}
 
-	latestData, err := os.ReadFile(filepath.Join(root, ".stackmap", "qa", "latest-question.json"))
+	latestData, err := os.ReadFile(filepath.Join(root, ".stackindex", "qa", "latest-question.json"))
 	if err != nil {
 		t.Fatalf("read latest: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestWriteLatestAndAppendHistory(t *testing.T) {
 		t.Fatalf("latest question = %q, want %q", latest.Question, result.Question)
 	}
 
-	historyData, err := os.ReadFile(filepath.Join(root, ".stackmap", "qa", "history.jsonl"))
+	historyData, err := os.ReadFile(filepath.Join(root, ".stackindex", "qa", "history.jsonl"))
 	if err != nil {
 		t.Fatalf("read history: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestWriteLatestAndAppendHistory(t *testing.T) {
 
 func TestReadRecentHistoryIgnoresMalformedLines(t *testing.T) {
 	root := t.TempDir()
-	qaDir := filepath.Join(root, ".stackmap", "qa")
+	qaDir := filepath.Join(root, ".stackindex", "qa")
 	if err := os.MkdirAll(qaDir, 0755); err != nil {
 		t.Fatalf("mkdir qa dir: %v", err)
 	}

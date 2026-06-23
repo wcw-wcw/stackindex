@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestBuildChangeSummaryNoPreviousSnapshot(t *testing.T) {

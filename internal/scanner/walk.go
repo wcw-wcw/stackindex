@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 const maxHashBytes = 2 * 1024 * 1024

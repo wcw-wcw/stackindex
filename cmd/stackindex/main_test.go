@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/will/stackmap/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/models"
 )
 
 func TestAnalyzeAuditLaunchesTUIWithAuditResult(t *testing.T) {
@@ -242,7 +242,7 @@ func writeTestFile(t *testing.T, path, content string) {
 
 func readAnalysisJSON(t *testing.T, root string) *models.Analysis {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(root, ".stackmap", "analysis.json"))
+	data, err := os.ReadFile(filepath.Join(root, ".stackindex", "analysis.json"))
 	if err != nil {
 		t.Fatalf("read analysis.json: %v", err)
 	}
