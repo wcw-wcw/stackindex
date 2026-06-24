@@ -10,10 +10,8 @@ import (
 )
 
 const (
-	featureLimit        = 8
 	featureFileLimit    = 8
 	featureTestLimit    = 5
-	routeChainLimit     = 12
 	routeChainFileLimit = 5
 )
 
@@ -21,6 +19,10 @@ var featureStopTerms = map[string]bool{
 	"api": true, "app": true, "src": true, "lib": true, "page": true, "route": true, "layout": true, "components": true,
 	"component": true, "config": true, "utils": true, "util": true, "test": true, "tests": true, "spec": true, "types": true,
 	"type": true, "index": true, "new": true, "edit": true, "settings": false,
+}
+
+var genericRouteTerms = map[string]bool{
+	"id": true, "slug": true, "symbol": true, "name": true, "key": true, "type": true,
 }
 
 type featureWork struct {
@@ -66,6 +68,10 @@ func buildFeatureClusters(files []models.FileInfo, routes []models.RouteInfo) []
 
 	var works []*featureWork
 	for _, work := range workByTerm {
+		if work.term == "symbol" && hasSpecificSymbolFeature(workByTerm) {
+			continue
+		}
+		work.score += featureTermBoost(work.term)
 		if len(work.paths)+len(work.routes) < 2 || work.score < 4 {
 			continue
 		}
@@ -83,21 +89,40 @@ func buildFeatureClusters(files []models.FileInfo, routes []models.RouteInfo) []
 		cluster := models.FeatureCluster{
 			Name:         featureDisplayName(work.term),
 			StartHere:    featureStartHere(work),
-			RelatedTests: sortedBoolKeys(work.tests, featureTestLimit),
+			RelatedTests: sortedBoolKeys(work.tests, 0),
 			SearchTerms:  featureSearchTerms(work.term),
 			AvoidFirst:   featureAvoidFirst(),
-			Routes:       sortedBoolKeys(work.routes, featureFileLimit),
+			Routes:       sortedBoolKeys(work.routes, 0),
 			Confidence:   featureConfidence(work),
 		}
 		if len(cluster.StartHere) == 0 {
 			continue
 		}
 		out = append(out, cluster)
-		if len(out) == featureLimit {
-			break
-		}
 	}
 	return out
+}
+
+func featureTermBoost(term string) int {
+	switch term {
+	case "watchlist":
+		return 30
+	case "rule", "alert", "market", "notification", "worker", "auth":
+		return 20
+	case "symbol-level":
+		return 15
+	default:
+		return 0
+	}
+}
+
+func hasSpecificSymbolFeature(workByTerm map[string]*featureWork) bool {
+	for _, term := range []string{"symbol-level", "watchlist", "market"} {
+		if work, ok := workByTerm[term]; ok && len(work.paths)+len(work.routes) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureFeatureWork(items map[string]*featureWork, term string) *featureWork {
@@ -115,12 +140,18 @@ func featureTermsForPath(path string) []string {
 		return nil
 	}
 	var terms []string
+	if strings.Contains(lower, "symbol-level") {
+		terms = append(terms, "symbol-level")
+	}
 	parts := strings.FieldsFunc(lower, func(r rune) bool {
 		return r == '/' || r == '-' || r == '_' || r == '.' || r == '[' || r == ']'
 	})
 	for i, part := range parts {
 		part = normalizeFeatureTerm(part)
 		if part == "" || featureStopTerms[part] {
+			continue
+		}
+		if genericRouteTerms[part] && strings.Contains(lower, "symbol-level") {
 			continue
 		}
 		if i > 0 && (parts[i-1] == "app" || parts[i-1] == "api" || parts[i-1] == "lib" || parts[i-1] == "scripts") {
@@ -149,6 +180,7 @@ func isFeatureNoisePath(path string) bool {
 
 func featureTermsForRoute(route models.RouteInfo) []string {
 	var terms []string
+	pathTerms := featureTermsForPath(route.SourceFile)
 	for _, part := range strings.FieldsFunc(strings.ToLower(route.Path), func(r rune) bool {
 		return r == '/' || r == '-' || r == '_' || r == ':' || r == '[' || r == ']'
 	}) {
@@ -156,10 +188,23 @@ func featureTermsForRoute(route models.RouteInfo) []string {
 		if part == "" || featureStopTerms[part] {
 			continue
 		}
+		if genericRouteTerms[part] && !hasRouteTermDomainEvidence(part, route.SourceFile, pathTerms) {
+			continue
+		}
 		terms = append(terms, part)
 	}
-	terms = append(terms, featureTermsForPath(route.SourceFile)...)
+	terms = append(terms, pathTerms...)
 	return uniqueFeatureTerms(terms)
+}
+
+func hasRouteTermDomainEvidence(term, sourcePath string, pathTerms []string) bool {
+	for _, pathTerm := range pathTerms {
+		if pathTerm == term {
+			return true
+		}
+	}
+	lower := strings.ToLower(filepath.ToSlash(sourcePath))
+	return strings.Contains(lower, term+"-") || strings.Contains(lower, "-"+term) || strings.Contains(lower, term+"_") || strings.Contains(lower, "_"+term)
 }
 
 func normalizeFeatureTerm(term string) string {
@@ -226,9 +271,6 @@ func featureStartHere(work *featureWork) []string {
 	var out []string
 	for _, file := range files {
 		out = append(out, file.Path)
-		if len(out) == featureFileLimit {
-			break
-		}
 	}
 	return out
 }
@@ -263,6 +305,8 @@ func featureDisplayName(term string) string {
 		return "Worker"
 	case "auth":
 		return "Auth"
+	case "symbol-level":
+		return "Symbol levels"
 	default:
 		return strings.ToUpper(term[:1]) + term[1:]
 	}
@@ -285,6 +329,8 @@ func featureSearchTerms(term string) []string {
 		terms = append(terms, "tick", "job", "cron", "queue")
 	case "auth":
 		terms = append(terms, "session", "cookie", "login", "logout")
+	case "symbol-level":
+		terms = append(terms, "symbol", "symbols", "levels", "targets")
 	}
 	return capStrings(uniqueStrings(terms), 8)
 }
@@ -333,9 +379,6 @@ func buildRouteChains(routes []models.RouteInfo, graph models.DependencyGraph, f
 			Summary: fmt.Sprintf("Start at `%s`, then follow the listed imports before broad searching.", route.SourceFile),
 		}
 		chains = append(chains, chain)
-		if len(chains) == routeChainLimit {
-			break
-		}
 	}
 	return chains
 }
@@ -375,10 +418,14 @@ func routeChainRank(path string) int {
 		return 5
 	case strings.Contains(lower, "/db/") || strings.Contains(lower, "repositor"):
 		return 4
-	case strings.Contains(lower, "/lib/"):
+	case strings.Contains(lower, "auth") || strings.Contains(lower, "session"):
 		return 3
-	default:
+	case strings.Contains(lower, "service") || strings.Contains(lower, "provider"):
+		return 2
+	case strings.Contains(lower, "/lib/"):
 		return 1
+	default:
+		return 0
 	}
 }
 

@@ -34,6 +34,8 @@ func Analyze(root string) (*models.Analysis, error) {
 	symbols := AnalyzeSymbols(absRoot, files, features, dependencies)
 	quality := walk.Quality
 	quality.UnresolvedInternalImports = countUnresolvedInternalImports(dependencies.UnresolvedImports)
+	quality.InternalAliasImportsResolved = dependencies.AliasImportsResolved
+	quality.UnresolvedAliasImports = dependencies.AliasImportsUnresolved
 	quality.Warnings = indexQualityWarnings(quality)
 
 	findings := append([]models.Finding{}, packageFindings...)
@@ -82,6 +84,9 @@ func indexQualityWarnings(quality models.IndexQuality) []string {
 	}
 	if quality.UnresolvedInternalImports > 0 {
 		warnings = append(warnings, "Some internal imports could not be resolved; route chains may be incomplete.")
+	}
+	if quality.UnresolvedAliasImports > 0 {
+		warnings = append(warnings, "Alias-looking imports were detected but could not be resolved from tsconfig/jsconfig paths or baseUrl.")
 	}
 	if quality.LargeFilesSkipped > 0 {
 		warnings = append(warnings, "Large files were skipped to keep the index compact.")

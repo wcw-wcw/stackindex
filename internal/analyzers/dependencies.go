@@ -1,6 +1,7 @@
 package analyzers
 
 import (
+	"encoding/json"
 	"go/parser"
 	"go/token"
 	"os"
@@ -40,6 +41,9 @@ type graphWork struct {
 	nodes              map[string]*models.DependencyNode
 	edges              []models.DependencyEdge
 	unresolved         []models.UnresolvedImport
+	aliasResolver      aliasResolver
+	aliasResolved      int
+	aliasUnresolved    int
 	importsByFile      map[string]int
 	importedByFile     map[string]int
 	roleByFile         map[string]string
@@ -61,6 +65,7 @@ func AnalyzeDependencyGraph(root string, files []models.FileInfo, pkg *models.Pa
 		goPackageFileByDir: map[string]string{},
 		entrypointSet:      map[string]bool{},
 	}
+	work.aliasResolver = loadAliasResolver(root, files)
 	for _, file := range files {
 		work.fileByPath[file.Path] = file
 		if file.Language == "Go" && file.Kind != models.FileKindTest {
@@ -105,12 +110,15 @@ func AnalyzeDependencyGraph(root string, files []models.FileInfo, pkg *models.Pa
 	top := work.topConnectedFiles()
 	hints := architectureHints(files, routes, deployment, work.entrypoints, top, edges)
 	return models.DependencyGraph{
-		Nodes:             capDependencyNodes(nodes, dependencyNodeLimit),
-		Edges:             edges,
-		Entrypoints:       capStrings(work.entrypoints, reportConnectedFileLimit),
-		UnresolvedImports: unresolved,
-		TopConnectedFiles: top,
-		ArchitectureHints: capStrings(hints, architectureHintLimit),
+		Nodes:                  capDependencyNodes(nodes, dependencyNodeLimit),
+		Edges:                  edges,
+		Entrypoints:            capStrings(work.entrypoints, reportConnectedFileLimit),
+		UnresolvedImports:      unresolved,
+		TopConnectedFiles:      top,
+		ArchitectureHints:      capStrings(hints, architectureHintLimit),
+		AliasConfig:            work.aliasResolver.info(),
+		AliasImportsResolved:   work.aliasResolved,
+		AliasImportsUnresolved: work.aliasUnresolved,
 	}
 }
 
@@ -206,6 +214,35 @@ func (w *graphWork) addImportEdge(from string, imp importRef, pkg *models.Packag
 			edge.Kind = "unresolved"
 			w.unresolved = append(w.unresolved, models.UnresolvedImport{From: from, ImportPath: path, Reason: "relative import did not match a file or index file"})
 		}
+	case w.aliasResolver.explicitAlias(path):
+		edge.Kind = "internal"
+		edge.Confidence = "high"
+		if target, ok := w.resolveAliasImport(path); ok {
+			edge.To = target
+			w.aliasResolved++
+			w.importsByFile[from]++
+			w.importedByFile[target]++
+			w.ensureNode(from)
+			w.ensureNode(target)
+		} else {
+			edge.Kind = "unresolved"
+			w.aliasUnresolved++
+			w.unresolved = append(w.unresolved, models.UnresolvedImport{From: from, ImportPath: path, Reason: "alias import did not match tsconfig/jsconfig paths or baseUrl"})
+		}
+	case fromExt != ".go" && w.aliasResolver.baseURL != "":
+		if target, ok := w.resolveAliasImport(path); ok {
+			edge.Kind = "internal"
+			edge.Confidence = "high"
+			edge.To = target
+			w.aliasResolved++
+			w.importsByFile[from]++
+			w.importedByFile[target]++
+			w.ensureNode(from)
+			w.ensureNode(target)
+		} else {
+			edge.Kind = "package"
+			edge.Confidence = "high"
+		}
 	case fromExt == ".go" && pkg != nil && pkg.ModuleName != "" && (path == pkg.ModuleName || strings.HasPrefix(path, pkg.ModuleName+"/")):
 		edge.Kind = "internal"
 		edge.Confidence = "medium"
@@ -238,21 +275,42 @@ func (w *graphWork) resolveRelativeImport(from, importPath string) (string, bool
 	if cleaned == "." {
 		return "", false
 	}
-	if file, ok := w.fileByPath[cleaned]; ok && isSupportedDependencySource(file) {
+	return w.resolveCandidatePath(cleaned)
+}
+
+func (w *graphWork) resolveCandidatePath(cleaned string) (string, bool) {
+	cleaned = filepath.ToSlash(filepath.Clean(cleaned))
+	if cleaned == "." || strings.HasPrefix(cleaned, "../") {
+		return "", false
+	}
+	if file, ok := w.fileByPath[cleaned]; ok && isSupportedDependencyTarget(file) {
 		return cleaned, true
 	}
 	if filepath.Ext(cleaned) == "" {
 		for _, ext := range jsImportExtensions {
 			candidate := cleaned + ext
-			if _, ok := w.fileByPath[candidate]; ok {
+			if file, ok := w.fileByPath[candidate]; ok && isSupportedDependencyTarget(file) {
 				return candidate, true
 			}
 		}
 		for _, ext := range jsImportExtensions {
 			candidate := filepath.ToSlash(filepath.Join(cleaned, "index"+ext))
-			if _, ok := w.fileByPath[candidate]; ok {
+			if file, ok := w.fileByPath[candidate]; ok && isSupportedDependencyTarget(file) {
 				return candidate, true
 			}
+		}
+	}
+	return "", false
+}
+
+func isSupportedDependencyTarget(file models.FileInfo) bool {
+	return isSupportedDependencySource(file)
+}
+
+func (w *graphWork) resolveAliasImport(importPath string) (string, bool) {
+	for _, candidate := range w.aliasResolver.candidates(importPath) {
+		if target, ok := w.resolveCandidatePath(candidate); ok {
+			return target, true
 		}
 	}
 	return "", false
@@ -265,6 +323,161 @@ func isAssetImport(importPath string) bool {
 	default:
 		return false
 	}
+}
+
+type aliasResolver struct {
+	source       string
+	baseURL      string
+	paths        map[string][]string
+	hasSrc       bool
+	configLoaded bool
+}
+
+type jsTSConfig struct {
+	CompilerOptions struct {
+		BaseURL string              `json:"baseUrl"`
+		Paths   map[string][]string `json:"paths"`
+	} `json:"compilerOptions"`
+}
+
+func loadAliasResolver(root string, files []models.FileInfo) aliasResolver {
+	resolver := aliasResolver{paths: map[string][]string{}}
+	for _, file := range files {
+		if file.Path == "src" || strings.HasPrefix(file.Path, "src/") {
+			resolver.hasSrc = true
+			break
+		}
+	}
+	for _, name := range []string{"tsconfig.json", "jsconfig.json"} {
+		if _, ok := fileByPath(files, name); !ok {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			continue
+		}
+		var cfg jsTSConfig
+		if err := json.Unmarshal(stripJSONComments(data), &cfg); err != nil {
+			continue
+		}
+		resolver.source = name
+		resolver.configLoaded = true
+		resolver.baseURL = normalizeAliasTarget(cfg.CompilerOptions.BaseURL)
+		for key, values := range cfg.CompilerOptions.Paths {
+			for _, value := range values {
+				resolver.paths[key] = append(resolver.paths[key], normalizeAliasTarget(value))
+			}
+		}
+		break
+	}
+	if resolver.hasSrc {
+		if len(resolver.paths["@/*"]) == 0 {
+			resolver.paths["@/*"] = []string{"src/*"}
+		}
+		if len(resolver.paths["~/*"]) == 0 {
+			resolver.paths["~/*"] = []string{"src/*"}
+		}
+	}
+	return resolver
+}
+
+func fileByPath(files []models.FileInfo, path string) (models.FileInfo, bool) {
+	for _, file := range files {
+		if file.Path == path {
+			return file, true
+		}
+	}
+	return models.FileInfo{}, false
+}
+
+func stripJSONComments(data []byte) []byte {
+	content := string(data)
+	blockComment := regexp.MustCompile(`(?s)/\*.*?\*/`)
+	lineComment := regexp.MustCompile(`(?m)//.*$`)
+	content = blockComment.ReplaceAllString(content, "")
+	content = lineComment.ReplaceAllString(content, "")
+	return []byte(content)
+}
+
+func normalizeAliasTarget(value string) string {
+	value = strings.TrimSpace(filepath.ToSlash(value))
+	value = strings.TrimPrefix(value, "./")
+	if value == "." {
+		return "."
+	}
+	return value
+}
+
+func (r aliasResolver) info() *models.AliasConfigInfo {
+	if !r.configLoaded && len(r.paths) == 0 && r.baseURL == "" {
+		return nil
+	}
+	paths := map[string][]string{}
+	for key, values := range r.paths {
+		paths[key] = append([]string{}, values...)
+	}
+	return &models.AliasConfigInfo{Source: r.source, BaseURL: r.baseURL, Paths: paths}
+}
+
+func (r aliasResolver) explicitAlias(importPath string) bool {
+	if importPath == "" || strings.HasPrefix(importPath, ".") || isAssetImport(importPath) {
+		return false
+	}
+	if strings.HasPrefix(importPath, "@/") || strings.HasPrefix(importPath, "~/") {
+		return true
+	}
+	for pattern := range r.paths {
+		prefix := strings.TrimSuffix(pattern, "*")
+		prefix = strings.TrimSuffix(prefix, "/")
+		if prefix != "" && (importPath == prefix || strings.HasPrefix(importPath, prefix+"/")) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r aliasResolver) candidates(importPath string) []string {
+	var candidates []string
+	for pattern, targets := range r.paths {
+		if suffix, ok := aliasPatternSuffix(pattern, importPath); ok {
+			for _, target := range targets {
+				candidates = append(candidates, applyAliasTarget(target, suffix))
+			}
+		}
+	}
+	if r.baseURL != "" {
+		candidates = append(candidates, filepath.ToSlash(filepath.Join(r.baseURL, importPath)))
+	}
+	return uniqueStrings(candidates)
+}
+
+func aliasPatternSuffix(pattern, importPath string) (string, bool) {
+	pattern = strings.TrimSpace(filepath.ToSlash(pattern))
+	switch {
+	case strings.Contains(pattern, "*"):
+		prefix := strings.Split(pattern, "*")[0]
+		if !strings.HasPrefix(importPath, prefix) {
+			return "", false
+		}
+		return strings.TrimPrefix(importPath, prefix), true
+	case importPath == pattern:
+		return "", true
+	case strings.HasSuffix(pattern, "/") && strings.HasPrefix(importPath, pattern):
+		return strings.TrimPrefix(importPath, pattern), true
+	default:
+		return "", false
+	}
+}
+
+func applyAliasTarget(target, suffix string) string {
+	target = normalizeAliasTarget(target)
+	if strings.Contains(target, "*") {
+		return strings.Replace(target, "*", suffix, 1)
+	}
+	if suffix == "" {
+		return target
+	}
+	return filepath.ToSlash(filepath.Join(target, suffix))
 }
 
 func (w *graphWork) resolveGoModuleImport(importPath, moduleName string) (string, bool) {

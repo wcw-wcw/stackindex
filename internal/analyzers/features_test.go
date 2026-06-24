@@ -44,6 +44,78 @@ export async function POST() { return Response.json({ ok: RuleSchema && saveRule
 	}
 }
 
+func TestAnalyzeResolvesTSConfigAliasesInRouteChains(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"tsconfig.json": `{"compilerOptions":{"baseUrl":".","paths":{"@/*":["src/*"]}}}`,
+		"package.json":  `{"name":"stocks","dependencies":{"next":"latest","react":"latest"}}`,
+		"src/app/api/rules/route.ts": `import { RuleSchema } from "@/lib/rules/schema";
+import { saveRule } from "@/lib/db/repositories";
+export async function POST() { return Response.json({ ok: RuleSchema && saveRule }) }`,
+		"src/lib/rules/schema.ts":    `export const RuleSchema = {}`,
+		"src/lib/db/repositories.ts": `export function saveRule() { return true }`,
+	})
+
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.Quality.InternalAliasImportsResolved != 2 {
+		t.Fatalf("alias resolved count = %d, want 2; graph=%#v", analysis.Quality.InternalAliasImportsResolved, analysis.Dependencies)
+	}
+	if analysis.Quality.UnresolvedAliasImports != 0 {
+		t.Fatalf("unexpected unresolved alias imports: %#v", analysis.Dependencies.UnresolvedImports)
+	}
+	if !hasDependencyEdge(analysis.Dependencies.Edges, "src/app/api/rules/route.ts", "src/lib/rules/schema.ts", "internal") {
+		t.Fatalf("missing internal alias edge to schema: %#v", analysis.Dependencies.Edges)
+	}
+	if !hasRouteChainFile(analysis.Features.RouteChains, "POST /api/rules", "src/lib/rules/schema.ts") ||
+		!hasRouteChainFile(analysis.Features.RouteChains, "POST /api/rules", "src/lib/db/repositories.ts") {
+		t.Fatalf("expected route chain to include alias-resolved lib files: %#v", analysis.Features.RouteChains)
+	}
+}
+
+func TestAnalyzeWarnsForUnresolvedAliasLookingImports(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json":                   `{"name":"stocks","dependencies":{"next":"latest"}}`,
+		"src/app/api/rules/route.ts":     `import { RuleSchema } from "@/missing/rules"; export async function POST() { return Response.json(RuleSchema) }`,
+		"src/lib/rules/evaluate.ts":      `export const ok = true`,
+		"src/lib/rules/evaluate.test.ts": `import { ok } from "./evaluate"; test("ok", () => ok)`,
+	})
+
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.Quality.UnresolvedAliasImports != 1 {
+		t.Fatalf("unresolved alias count = %d, want 1", analysis.Quality.UnresolvedAliasImports)
+	}
+	if !contains(analysis.Quality.Warnings, "Alias-looking imports were detected but could not be resolved from tsconfig/jsconfig paths or baseUrl.") {
+		t.Fatalf("missing alias warning: %#v", analysis.Quality.Warnings)
+	}
+}
+
+func TestAnalyzeFeatureMapKeepsWatchlistSeparateFromGenericSymbol(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json":                         `{"name":"stocks","dependencies":{"next":"latest","react":"latest"}}`,
+		"src/app/watchlist/page.tsx":           `export default function WatchlistPage() { return null }`,
+		"src/app/api/watchlist/route.ts":       `export async function GET() { return Response.json([]) }`,
+		"src/app/api/market/[symbol]/route.ts": `export async function GET() { return Response.json({}) }`,
+		"src/lib/market/symbol-levels.ts":      `export const symbolLevels = []`,
+		"src/lib/watchlist/repository.ts":      `export const watchlistRepository = {}`,
+	})
+
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFeatureNamed(analysis.Features.Features, "Watchlist") {
+		t.Fatalf("expected watchlist feature: %#v", analysis.Features.Features)
+	}
+	if hasFeatureNamed(analysis.Features.Features, "Symbol") {
+		t.Fatalf("generic Symbol feature should not dominate: %#v", analysis.Features.Features)
+	}
+}
+
 func hasAnalyzedPath(files []models.FileInfo, path string) bool {
 	for _, file := range files {
 		if file.Path == path {
@@ -62,6 +134,15 @@ func hasFeatureStart(features []models.FeatureCluster, name, path string) bool {
 			if item == path {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func hasFeatureNamed(features []models.FeatureCluster, name string) bool {
+	for _, feature := range features {
+		if feature.Name == name {
+			return true
 		}
 	}
 	return false

@@ -62,9 +62,9 @@ func markdown(a *models.Analysis, full bool) string {
 
 	writeIndexQuality(&b, a)
 	writeProjectContext(&b, a)
-	writeFeatureMap(&b, a)
+	writeFeatureMap(&b, a, full)
 	writeTaskSearchRecipes(&b, a)
-	writeRouteChains(&b, a)
+	writeRouteChains(&b, a, full)
 	writeAgentSearchGuide(&b, a)
 	writeSearchBudgetHints(&b, a)
 
@@ -114,6 +114,7 @@ func writeIndexQuality(b *strings.Builder, a *models.Analysis) {
 	fmt.Fprintf(b, "- Large files skipped: %d\n", q.LargeFilesSkipped)
 	fmt.Fprintf(b, "- Binary files skipped: %d\n", q.BinaryFilesSkipped)
 	fmt.Fprintf(b, "- Unresolved internal imports: %d\n", q.UnresolvedInternalImports)
+	fmt.Fprintf(b, "- Internal alias imports resolved: %d\n", q.InternalAliasImportsResolved)
 	if len(q.Warnings) > 0 {
 		fmt.Fprintln(b, "- Confidence warnings:")
 		for _, warning := range q.Warnings {
@@ -123,17 +124,17 @@ func writeIndexQuality(b *strings.Builder, a *models.Analysis) {
 	fmt.Fprintln(b)
 }
 
-func writeFeatureMap(b *strings.Builder, a *models.Analysis) {
+func writeFeatureMap(b *strings.Builder, a *models.Analysis, full bool) {
 	if len(a.Features.Features) == 0 {
 		return
 	}
 	fmt.Fprintf(b, "## Feature Map\n\n")
-	for _, feature := range a.Features.Features {
+	for _, feature := range displayFeatureClusters(a.Features.Features, full) {
 		fmt.Fprintf(b, "### %s\n\n", feature.Name)
-		writePathList(b, "Start here", feature.StartHere)
-		writePathList(b, "Related tests", feature.RelatedTests)
+		writePathList(b, "Start here", displayStrings(feature.StartHere, full, 8))
+		writePathList(b, "Related tests", displayStrings(feature.RelatedTests, full, 5))
 		writeNameList(b, "Search terms", feature.SearchTerms)
-		writeNameList(b, "Routes", feature.Routes)
+		writeNameList(b, "Routes", displayStrings(feature.Routes, full, 8))
 		writeNameList(b, "Avoid first", feature.AvoidFirst)
 		fmt.Fprintf(b, "- Confidence: %s\n\n", feature.Confidence)
 	}
@@ -179,12 +180,12 @@ func writeTaskSearchRecipes(b *strings.Builder, a *models.Analysis) {
 	}
 }
 
-func writeRouteChains(b *strings.Builder, a *models.Analysis) {
+func writeRouteChains(b *strings.Builder, a *models.Analysis, full bool) {
 	if len(a.Features.RouteChains) == 0 {
 		return
 	}
 	fmt.Fprintf(b, "## Route Implementation Chains\n\n")
-	for _, chain := range a.Features.RouteChains {
+	for _, chain := range displayRouteChains(a.Features.RouteChains, full) {
 		fmt.Fprintf(b, "- `%s`\n", chain.Route)
 		if len(chain.Files) > 0 {
 			fmt.Fprintln(b, "  - Follow:")
@@ -241,6 +242,27 @@ func writePathList(b *strings.Builder, label string, paths []string) {
 	for _, path := range paths {
 		fmt.Fprintf(b, "  - `%s`\n", path)
 	}
+}
+
+func displayFeatureClusters(features []models.FeatureCluster, full bool) []models.FeatureCluster {
+	if full || len(features) <= 8 {
+		return features
+	}
+	return features[:8]
+}
+
+func displayRouteChains(chains []models.RouteChain, full bool) []models.RouteChain {
+	if full || len(chains) <= 12 {
+		return chains
+	}
+	return chains[:12]
+}
+
+func displayStrings(items []string, full bool, limit int) []string {
+	if full || limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return items[:limit]
 }
 
 func writeSearchBudgetHints(b *strings.Builder, a *models.Analysis) {

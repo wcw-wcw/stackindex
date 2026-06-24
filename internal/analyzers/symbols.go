@@ -69,7 +69,7 @@ func symbolPriority(files []models.FileInfo, features models.FeatureMap, graph m
 	}
 	for _, chain := range features.RouteChains {
 		for i, path := range chain.Files {
-			priority[path] += 6 - minInt(i, 4)
+			priority[path] += 4 - minInt(i, 3)
 		}
 		for _, path := range chain.Tests {
 			priority[path] += 2
@@ -80,8 +80,19 @@ func symbolPriority(files []models.FileInfo, features models.FeatureMap, graph m
 	}
 	for _, file := range files {
 		lower := strings.ToLower(file.Path)
-		if strings.Contains(lower, "schema") || strings.Contains(lower, "validat") || strings.Contains(lower, "repositor") || strings.Contains(lower, "/db/") {
-			priority[file.Path] += 3
+		switch {
+		case strings.Contains(lower, "schema") || strings.Contains(lower, "validat"):
+			priority[file.Path] += 9
+		case strings.Contains(lower, "repositor") || strings.Contains(lower, "/db/"):
+			priority[file.Path] += 8
+		case strings.Contains(lower, "service") || strings.Contains(lower, "provider"):
+			priority[file.Path] += 7
+		case strings.Contains(lower, "worker"):
+			priority[file.Path] += 6
+		case strings.Contains(lower, "config") || strings.Contains(lower, "/env"):
+			priority[file.Path] += 5
+		case strings.Contains(lower, "/api/") && strings.HasSuffix(lower, "/route.ts"):
+			priority[file.Path] -= 2
 		}
 	}
 	return priority

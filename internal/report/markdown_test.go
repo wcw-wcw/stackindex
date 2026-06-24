@@ -1,6 +1,7 @@
 package report
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -466,6 +467,28 @@ func TestMarkdownCompactAndFullOutputsSplitVerboseDetails(t *testing.T) {
 		if !strings.Contains(full, want) {
 			t.Fatalf("full markdown missing %q:\n%s", want, full)
 		}
+	}
+}
+
+func TestFullMarkdownIncludesRouteChainsOmittedFromCompact(t *testing.T) {
+	analysis := baseAnalysis()
+	for i := 0; i < 14; i++ {
+		route := models.RouteChain{
+			Route:   fmt.Sprintf("GET /api/feature-%02d", i),
+			Files:   []string{fmt.Sprintf("src/app/api/feature-%02d/route.ts", i)},
+			Summary: "test route",
+		}
+		analysis.Features.RouteChains = append(analysis.Features.RouteChains, route)
+	}
+
+	compact := Markdown(analysis)
+	full := FullMarkdown(analysis)
+
+	if strings.Contains(compact, "GET /api/feature-13") {
+		t.Fatalf("compact markdown included route chain beyond display cap:\n%s", compact)
+	}
+	if !strings.Contains(full, "GET /api/feature-13") {
+		t.Fatalf("full markdown omitted uncapped route chain:\n%s", full)
 	}
 }
 

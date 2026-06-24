@@ -168,12 +168,21 @@ type ExportedSymbol struct {
 }
 
 type DependencyGraph struct {
-	Nodes             []DependencyNode       `json:"nodes,omitempty"`
-	Edges             []DependencyEdge       `json:"edges,omitempty"`
-	Entrypoints       []string               `json:"entrypoints,omitempty"`
-	UnresolvedImports []UnresolvedImport     `json:"unresolvedImports,omitempty"`
-	TopConnectedFiles []ConnectedFileSummary `json:"topConnectedFiles,omitempty"`
-	ArchitectureHints []string               `json:"architectureHints,omitempty"`
+	Nodes                  []DependencyNode       `json:"nodes,omitempty"`
+	Edges                  []DependencyEdge       `json:"edges,omitempty"`
+	Entrypoints            []string               `json:"entrypoints,omitempty"`
+	UnresolvedImports      []UnresolvedImport     `json:"unresolvedImports,omitempty"`
+	TopConnectedFiles      []ConnectedFileSummary `json:"topConnectedFiles,omitempty"`
+	ArchitectureHints      []string               `json:"architectureHints,omitempty"`
+	AliasConfig            *AliasConfigInfo       `json:"aliasConfig,omitempty"`
+	AliasImportsResolved   int                    `json:"aliasImportsResolved"`
+	AliasImportsUnresolved int                    `json:"aliasImportsUnresolved"`
+}
+
+type AliasConfigInfo struct {
+	Source  string              `json:"source,omitempty"`
+	BaseURL string              `json:"baseUrl,omitempty"`
+	Paths   map[string][]string `json:"paths,omitempty"`
 }
 
 type DependencyNode struct {

@@ -20,14 +20,16 @@ type FileInfo struct {
 }
 
 type IndexQuality struct {
-	GeneratedOrCacheDirsIgnored bool              `json:"generatedOrCacheDirsIgnored"`
-	IgnoredDirCounts            map[string]int    `json:"ignoredDirCounts,omitempty"`
-	LargeFilesSkipped           int               `json:"largeFilesSkipped"`
-	BinaryFilesSkipped          int               `json:"binaryFilesSkipped"`
-	UnresolvedInternalImports   int               `json:"unresolvedInternalImports"`
-	Warnings                    []string          `json:"warnings,omitempty"`
-	SkippedLargeFiles           []SkippedFileInfo `json:"skippedLargeFiles,omitempty"`
-	SkippedBinaryFiles          []SkippedFileInfo `json:"skippedBinaryFiles,omitempty"`
+	GeneratedOrCacheDirsIgnored  bool              `json:"generatedOrCacheDirsIgnored"`
+	IgnoredDirCounts             map[string]int    `json:"ignoredDirCounts,omitempty"`
+	LargeFilesSkipped            int               `json:"largeFilesSkipped"`
+	BinaryFilesSkipped           int               `json:"binaryFilesSkipped"`
+	UnresolvedInternalImports    int               `json:"unresolvedInternalImports"`
+	InternalAliasImportsResolved int               `json:"internalAliasImportsResolved"`
+	UnresolvedAliasImports       int               `json:"unresolvedAliasImports"`
+	Warnings                     []string          `json:"warnings,omitempty"`
+	SkippedLargeFiles            []SkippedFileInfo `json:"skippedLargeFiles,omitempty"`
+	SkippedBinaryFiles           []SkippedFileInfo `json:"skippedBinaryFiles,omitempty"`
 }
 
 type SkippedFileInfo struct {
