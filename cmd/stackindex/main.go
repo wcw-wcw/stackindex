@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/wcw-wcw/stackindex/internal/app"
 	"github.com/wcw-wcw/stackindex/internal/audit"
 	"github.com/wcw-wcw/stackindex/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/planner"
 	"github.com/wcw-wcw/stackindex/internal/qa"
 	"github.com/wcw-wcw/stackindex/internal/report"
 	"github.com/wcw-wcw/stackindex/internal/tui"
@@ -24,6 +26,8 @@ Usage:
   stackindex analyze [path] [--json] [--no-tui] [--ai] [--model llama3.2:3b] [--ai-debug]
   stackindex audit [path] [--json] [--allow-medium] [--allow-missing-tests] [--fail-on-low] [--ai]
   stackindex ask [path] "question" [--json] [--ai] [--model llama3.2:3b] [--ai-debug]
+  stackindex plan <repo> "task" [--json]
+  stackindex eval <repo> [--json]
   stackindex --help
 
 Examples:
@@ -34,6 +38,8 @@ Examples:
   stackindex audit .
   stackindex ask . "What is this project for?"
   stackindex ask . "Where are the API routes?"
+  stackindex plan . "fix rule validation bug"
+  stackindex eval .
 
 Local Ollama model behavior varies. By default StackIndex tries llama3.2:3b,
 then qwen:7b, then the deterministic StackIndex summary.
@@ -74,9 +80,74 @@ func run(args []string) error {
 		return analyze(args[1:], true)
 	case "ask":
 		return ask(args[1:])
+	case "plan":
+		return plan(args[1:])
+	case "eval":
+		return evalIndex(args[1:])
 	default:
 		return analyze(args, false)
 	}
+}
+
+func plan(args []string) error {
+	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print search plan JSON to stdout")
+	if err := fs.Parse(normalizePlanArgs(args)); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		return errors.New(`plan requires a repo and task, for example: stackindex plan . "fix rule validation bug"`)
+	}
+	target := fs.Arg(0)
+	task := strings.Join(fs.Args()[1:], " ")
+	analysis, _, err := planner.LoadAnalysis(target)
+	if err != nil {
+		return err
+	}
+	result := planner.Plan(task, analysis)
+	if *jsonOut {
+		data, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+	fmt.Print(planner.FormatPlan(result))
+	return nil
+}
+
+func evalIndex(args []string) error {
+	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	jsonOut := fs.Bool("json", false, "print eval result JSON to stdout")
+	if err := fs.Parse(normalizePlanArgs(args)); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return errors.New("eval requires a repo, for example: stackindex eval .")
+	}
+	target := fs.Arg(0)
+	analysis, _, err := planner.LoadAnalysis(target)
+	if err != nil {
+		return err
+	}
+	fixtures := planner.LoadFixtures(target)
+	scores := make([]planner.Score, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		scores = append(scores, planner.ScorePlan(fixture, planner.Plan(fixture.Task, analysis)))
+	}
+	if *jsonOut {
+		data, err := json.MarshalIndent(scores, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+	fmt.Print(planner.FormatEval(scores))
+	return nil
 }
 
 func ask(args []string) error {
@@ -297,6 +368,19 @@ func normalizeAskArgs(args []string) []string {
 			} else {
 				positionals = append(positionals, arg)
 			}
+		}
+	}
+	return append(flags, positionals...)
+}
+
+func normalizePlanArgs(args []string) []string {
+	var flags []string
+	var positionals []string
+	for _, arg := range args {
+		if arg == "--json" || arg == "-json" || strings.HasPrefix(arg, "--json=") || strings.HasPrefix(arg, "-json=") {
+			flags = append(flags, arg)
+		} else {
+			positionals = append(positionals, arg)
 		}
 	}
 	return append(flags, positionals...)

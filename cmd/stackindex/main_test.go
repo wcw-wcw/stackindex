@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wcw-wcw/stackindex/internal/models"
 )
@@ -218,6 +219,42 @@ func TestNormalizeAskArgsKeepsAssignedFlagsBeforePositionals(t *testing.T) {
 	}
 }
 
+func TestPlanCommandUsesExistingAnalysis(t *testing.T) {
+	root := plannerProject(t)
+	stdout, restoreStdout := captureStdout(t)
+
+	err := run([]string{"plan", root, "fix rule validation bug"})
+	restoreStdout()
+	if err != nil {
+		t.Fatalf("plan returned error: %v", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "Matched feature: Rules / alerts") {
+		t.Fatalf("plan output missing matched feature:\n%s", output)
+	}
+	if !strings.Contains(output, "src/lib/rules/schema.ts") {
+		t.Fatalf("plan output missing schema recommendation:\n%s", output)
+	}
+}
+
+func TestEvalCommandPrintsScoreTable(t *testing.T) {
+	root := plannerProject(t)
+	stdout, restoreStdout := captureStdout(t)
+
+	err := run([]string{"eval", root})
+	restoreStdout()
+	if err != nil {
+		t.Fatalf("eval returned error: %v", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "P@5") || !strings.Contains(output, "R@10") {
+		t.Fatalf("eval output missing score columns:\n%s", output)
+	}
+	if !strings.Contains(output, "fix rule validation bug") {
+		t.Fatalf("eval output missing built-in fixture:\n%s", output)
+	}
+}
+
 func healthyProject(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -230,6 +267,55 @@ func projectWithoutTests(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nfunc main() {}\n")
+	return root
+}
+
+func plannerProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	analysis := models.Analysis{
+		RepoPath:    root,
+		RepoName:    "planner-project",
+		GeneratedAt: time.Now(),
+		Files: []models.FileInfo{
+			{Path: "src/app/api/rules/route.ts", Kind: models.FileKindSource},
+			{Path: "src/lib/rules/schema.ts", Kind: models.FileKindSource},
+			{Path: "src/lib/rules/evaluate.test.ts", Kind: models.FileKindTest},
+			{Path: "src/lib/db/repositories.ts", Kind: models.FileKindSource},
+		},
+		Features: models.FeatureMap{
+			Features: []models.FeatureCluster{
+				{
+					Name:         "Rules / alerts",
+					StartHere:    []string{"src/lib/rules/schema.ts", "src/app/api/rules/route.ts", "src/lib/db/repositories.ts"},
+					RelatedTests: []string{"src/lib/rules/evaluate.test.ts"},
+					SearchTerms:  []string{"rule", "validation", "schema"},
+					Routes:       []string{"POST /api/rules"},
+					Confidence:   "high",
+				},
+			},
+			RouteChains: []models.RouteChain{
+				{
+					Route: "POST /api/rules",
+					Files: []string{
+						"src/app/api/rules/route.ts",
+						"src/lib/rules/schema.ts",
+						"src/lib/db/repositories.ts",
+					},
+					Tests: []string{"src/lib/rules/evaluate.test.ts"},
+				},
+			},
+		},
+	}
+	dir := filepath.Join(root, ".stackindex")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("mkdir .stackindex: %v", err)
+	}
+	data, err := json.MarshalIndent(analysis, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal planner analysis: %v", err)
+	}
+	writeTestFile(t, filepath.Join(dir, "analysis.json"), string(data))
 	return root
 }
 

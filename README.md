@@ -37,6 +37,8 @@ go build -o stackindex ./cmd/stackindex
 | JSON analysis output | Implemented |
 | Key file and directory role detection | Implemented |
 | Lightweight dependency graph for source files | Implemented |
+| Deterministic agent search planner | Implemented |
+| Built-in agent usefulness eval fixtures | Implemented |
 | Stack, package script, route, env, test, and deployment signals | Implemented |
 | Same-repo snapshot history and change summary | Implemented |
 | Deterministic repo Q&A from indexed evidence | Implemented |
@@ -51,6 +53,8 @@ stackindex analyze . --no-tui
 stackindex analyze . --json
 stackindex ask . "What files should I read first?"
 stackindex ask . "Where are the API routes?"
+stackindex plan . "fix rule validation bug"
+stackindex eval .
 stackindex audit .
 ```
 
@@ -83,6 +87,16 @@ StackIndex writes generated artifacts under the analyzed repository:
 The main artifact is `.stackindex/reports/repo-index.md`, a compact search plan. `.stackindex/reports/repo-index.full.md` carries verbose routes, env vars, scripts, findings, and file counts. `.stackindex/analysis.json` keeps the same information in a structured form for future automation.
 
 `.stackindex/` is ignored by this repository and should usually be ignored by projects being analyzed unless generated indexes are intentionally committed.
+
+## Agent Workflow
+
+Use `.stackindex/reports/repo-index.md` as the first read before opening source files. It is intentionally compact and should answer: what kind of project is this, what features exist, which files are worth opening first, what routes lead to which implementation files, and what paths should be avoided at the start.
+
+Use `.stackindex/reports/repo-index.full.md` when the compact index omits detail. The full index keeps the complete feature and route-chain set so an agent can broaden with structure instead of falling back to whole-repo search.
+
+Use `stackindex plan <repo> "task"` when the user gives a concrete task. The command reads the latest `.stackindex/analysis.json` and prints a deterministic search plan with recommended first files, related tests, search terms, directories to inspect, avoid-first paths, and reasons for each file recommendation. If the analysis is missing or stale, run `stackindex analyze <repo> --no-tui` first.
+
+Use `stackindex eval <repo>` to measure whether the current index behaves like an agent search optimizer. It runs built-in or local fixtures against the latest analysis and reports precision@5, recall@10, top-hit status, and warnings for broad-search or under-search risk. Projects can add `.stackindex/eval-fixtures.json` to replace the built-in stkapp-style fixture set with project-specific tasks.
 
 ## What The Markdown Index Contains
 
