@@ -19,6 +19,26 @@ type FileInfo struct {
 	Hash      string   `json:"hash,omitempty"`
 }
 
+type IndexMetadata struct {
+	HashAlgorithm string            `json:"hashAlgorithm"`
+	IndexedFiles  []FileFingerprint `json:"indexedFiles,omitempty"`
+	Staleness     IndexStaleness    `json:"staleness"`
+}
+
+type FileFingerprint struct {
+	Path      string `json:"path"`
+	SizeBytes int64  `json:"sizeBytes"`
+	Hash      string `json:"hash,omitempty"`
+}
+
+type IndexStaleness struct {
+	Stale            bool     `json:"stale"`
+	ChangedFileCount int      `json:"changedFileCount"`
+	ChangedFiles     []string `json:"changedFiles,omitempty"`
+	CheckedAt        string   `json:"checkedAt,omitempty"`
+	Recommendation   string   `json:"recommendation,omitempty"`
+}
+
 type IndexQuality struct {
 	GeneratedOrCacheDirsIgnored  bool              `json:"generatedOrCacheDirsIgnored"`
 	IgnoredDirCounts             map[string]int    `json:"ignoredDirCounts,omitempty"`

@@ -600,6 +600,10 @@ func inferredFileRole(path string) string {
 		return "Next.js app page/layout"
 	case strings.HasPrefix(lower, "cmd/") && base == "main.go":
 		return "Main CLI entrypoint"
+	case isRootLocalServer(path):
+		return "Local Node backend/server entrypoint"
+	case lower == "src-tauri/src/main.rs" || lower == "src-tauri/src/lib.rs":
+		return "Tauri/Rust backend entrypoint"
 	case base == "main.tsx" || base == "main.ts" || base == "app.tsx" || base == "app.ts":
 		return "Frontend entrypoint/component"
 	case strings.Contains(lower, "worker"):
@@ -627,7 +631,7 @@ func detectEntrypoints(files []models.FileInfo, structure models.StructureMap, r
 	}
 	for _, role := range structure.KeyFiles {
 		lowerRole := strings.ToLower(role.Role)
-		if strings.Contains(lowerRole, "entrypoint") || strings.Contains(lowerRole, "api route") || strings.Contains(lowerRole, "worker") || strings.Contains(lowerRole, "operational validation") {
+		if strings.Contains(lowerRole, "entrypoint") || strings.Contains(lowerRole, "api route") || strings.Contains(lowerRole, "server") || strings.Contains(lowerRole, "worker") || strings.Contains(lowerRole, "operational validation") {
 			add(role.Path)
 		}
 	}
@@ -642,6 +646,10 @@ func detectEntrypoints(files []models.FileInfo, structure models.StructureMap, r
 		case strings.HasPrefix(lower, "src/app/") && (strings.HasPrefix(base, "page.") || strings.HasPrefix(base, "layout.")):
 			add(file.Path)
 		case lower == "src/main.tsx" || lower == "src/main.ts" || lower == "src/main.jsx" || lower == "src/main.js" || lower == "src/app.tsx" || lower == "src/app.ts":
+			add(file.Path)
+		case isRootLocalServer(file.Path):
+			add(file.Path)
+		case lower == "src-tauri/src/main.rs" || lower == "src-tauri/src/lib.rs":
 			add(file.Path)
 		case strings.HasPrefix(lower, "scripts/") && scriptEntrypointName(lower):
 			add(file.Path)
@@ -672,6 +680,9 @@ func scriptEntrypointName(path string) bool {
 func isExpressEntrypoint(path string, pkg *models.PackageInfo) bool {
 	if pkg == nil || !hasAnyDep(pkg, "express", "fastify", "koa") {
 		return false
+	}
+	if isRootLocalServer(path) {
+		return true
 	}
 	base := filepath.Base(path)
 	return base == "server.ts" || base == "server.js" || base == "app.ts" || base == "app.js" || base == "index.ts" || base == "index.js"

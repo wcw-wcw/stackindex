@@ -18,11 +18,17 @@ const (
 var featureStopTerms = map[string]bool{
 	"api": true, "app": true, "src": true, "lib": true, "page": true, "route": true, "layout": true, "components": true,
 	"component": true, "config": true, "utils": true, "util": true, "test": true, "tests": true, "spec": true, "types": true,
-	"type": true, "index": true, "new": true, "edit": true, "settings": false,
+	"type": true, "index": true, "new": true, "edit": true, "settings": true, "setting": true,
 }
 
 var genericRouteTerms = map[string]bool{
 	"id": true, "slug": true, "symbol": true, "name": true, "key": true, "type": true,
+}
+
+var lowValueFeatureTerms = map[string]bool{
+	"mjs": true, "js": true, "jsx": true, "ts": true, "tsx": true, "json": true,
+	"script": true, "scripts": true, "gen": true, "generated": true, "schema": true, "schemas": true, "config": true,
+	"start": true, "stop": true, "status": true, "verify": true, "validate": true, "setting": true, "settings": true,
 }
 
 type featureWork struct {
@@ -34,18 +40,31 @@ type featureWork struct {
 }
 
 func AnalyzeFeatureMap(files []models.FileInfo, routes []models.RouteInfo, graph models.DependencyGraph) models.FeatureMap {
-	features := buildFeatureClusters(files, routes)
+	features, quality := buildFeatureClusters(files, routes)
 	return models.FeatureMap{
 		Features:    features,
 		RouteChains: buildRouteChains(routes, graph, files),
+		Quality:     quality,
 	}
 }
 
-func buildFeatureClusters(files []models.FileInfo, routes []models.RouteInfo) []models.FeatureCluster {
+func buildFeatureClusters(files []models.FileInfo, routes []models.RouteInfo) ([]models.FeatureCluster, models.FeatureMapQuality) {
 	workByTerm := map[string]*featureWork{}
 	fileByPath := map[string]models.FileInfo{}
+	quality := models.FeatureMapQuality{Confidence: "medium"}
 	for _, file := range files {
 		fileByPath[file.Path] = file
+		generated, generic := featureSuppressionHintsForPath(file.Path)
+		if generated {
+			quality.CandidateCount++
+			quality.SuppressedCount++
+			quality.GeneratedCount++
+		}
+		if generic {
+			quality.CandidateCount++
+			quality.SuppressedCount++
+			quality.GenericTermCount++
+		}
 		for _, term := range featureTermsForPath(file.Path) {
 			work := ensureFeatureWork(workByTerm, term)
 			work.paths[file.Path] = file
@@ -68,7 +87,20 @@ func buildFeatureClusters(files []models.FileInfo, routes []models.RouteInfo) []
 
 	var works []*featureWork
 	for _, work := range workByTerm {
+		quality.CandidateCount++
 		if work.term == "symbol" && hasSpecificSymbolFeature(workByTerm) {
+			quality.SuppressedCount++
+			quality.GenericTermCount++
+			continue
+		}
+		if isLowValueFeatureWork(work) {
+			quality.SuppressedCount++
+			quality.GenericTermCount++
+			continue
+		}
+		if featureWorkGeneratedOnly(work) {
+			quality.SuppressedCount++
+			quality.GeneratedCount++
 			continue
 		}
 		work.score += featureTermBoost(work.term)
@@ -100,7 +132,33 @@ func buildFeatureClusters(files []models.FileInfo, routes []models.RouteInfo) []
 		}
 		out = append(out, cluster)
 	}
-	return out
+	quality.UsefulCount = len(out)
+	if len(out) < 2 {
+		quality.Confidence = "low"
+		quality.Reason = "Feature Map has fewer than 2 useful compact features; use Agent Search Guide and Key Files first."
+	} else if len(out) < 4 && quality.CandidateCount > 0 && quality.SuppressedCount*2 >= quality.CandidateCount {
+		quality.Confidence = "low"
+		quality.Reason = "Most candidate features were generated or generic tooling terms; use Agent Search Guide and Key Files first."
+	} else {
+		quality.Confidence = "high"
+	}
+	return out, quality
+}
+
+func featureSuppressionHintsForPath(path string) (generated bool, generic bool) {
+	lower := strings.ToLower(filepath.ToSlash(path))
+	generated = isGeneratedFeaturePath(lower)
+	parts := strings.FieldsFunc(lower, func(r rune) bool {
+		return r == '/' || r == '-' || r == '_' || r == '.' || r == '[' || r == ']'
+	})
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.ToLower(part))
+		if lowValueFeatureTerms[part] {
+			generic = true
+			break
+		}
+	}
+	return generated, generic
 }
 
 func featureTermBoost(term string) int {
@@ -151,6 +209,9 @@ func featureTermsForPath(path string) []string {
 		if part == "" || featureStopTerms[part] {
 			continue
 		}
+		if lowValueFeatureTerms[part] && !hasStrongDomainInPath(lower) {
+			continue
+		}
 		if genericRouteTerms[part] && strings.Contains(lower, "symbol-level") {
 			continue
 		}
@@ -168,6 +229,9 @@ func featureTermsForPath(path string) []string {
 func isFeatureNoisePath(path string) bool {
 	base := filepath.Base(path)
 	if strings.HasSuffix(base, ".md5") || strings.Contains(base, "lock") {
+		return true
+	}
+	if isGeneratedFeaturePath(path) {
 		return true
 	}
 	switch strings.ToLower(filepath.Ext(base)) {
@@ -213,10 +277,65 @@ func normalizeFeatureTerm(term string) string {
 	if strings.HasSuffix(term, "s") && len(term) > 4 {
 		term = strings.TrimSuffix(term, "s")
 	}
-	if len(term) < 3 || term == "tsx" || term == "ts" || term == "js" || term == "jsx" {
+	if len(term) < 3 || lowValueFeatureTerms[term] {
 		return ""
 	}
 	return term
+}
+
+func isGeneratedFeaturePath(path string) bool {
+	lower := strings.ToLower(filepath.ToSlash(path))
+	return strings.HasPrefix(lower, "src-tauri/gen/") ||
+		strings.HasPrefix(lower, "generated/") ||
+		strings.HasPrefix(lower, "gen/") ||
+		strings.Contains(lower, "/generated/") ||
+		strings.Contains(lower, "/gen/") ||
+		strings.Contains(lower, "/schemas/generated/") ||
+		strings.Contains(lower, "/schema/generated/") ||
+		strings.Contains(lower, "/json-schema/") ||
+		strings.Contains(lower, "/json-schemas/") ||
+		strings.Contains(lower, "/schema/") && strings.Contains(lower, "generated")
+}
+
+func hasStrongDomainInPath(path string) bool {
+	for _, term := range []string{"worker", "auth", "rule", "rules", "alert", "notification", "deployment", "deploy", "market", "watchlist", "tauri"} {
+		if strings.Contains(path, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLowValueFeatureWork(work *featureWork) bool {
+	if work == nil {
+		return true
+	}
+	if !lowValueFeatureTerms[work.term] {
+		return false
+	}
+	for path := range work.paths {
+		if hasStrongDomainInPath(strings.ToLower(path)) && !featureWorkGeneratedOnly(work) {
+			return false
+		}
+	}
+	for route := range work.routes {
+		if hasStrongDomainInPath(strings.ToLower(route)) {
+			return false
+		}
+	}
+	return true
+}
+
+func featureWorkGeneratedOnly(work *featureWork) bool {
+	if work == nil || len(work.paths) == 0 {
+		return false
+	}
+	for path := range work.paths {
+		if !isGeneratedFeaturePath(path) {
+			return false
+		}
+	}
+	return true
 }
 
 func uniqueFeatureTerms(in []string) []string {

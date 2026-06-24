@@ -39,9 +39,11 @@ type scoredPurpose struct {
 }
 
 var purposeRules = []purposeRule{
+	{purpose: "Local-first developer dashboard", fallback: "Developer dashboard", terms: []string{"devflow", "developer dashboard", "developer-dashboard", "local-first developer", "local-first dashboard", "development dashboard", "project tracker", "task tracker", "local-first project tracker", "agent workspace", "developer workflow", "workflow dashboard", "coding session", "coding sessions"}},
+	{purpose: "Tauri desktop app", fallback: "Desktop productivity app", terms: []string{"tauri", "desktop app", "desktop application", "desktop productivity", "local desktop", "system tray", "native desktop"}},
 	{purpose: "Assessment/education application", fallback: "Assessment-taking web application", terms: []string{"assessment", "assessments", "quiz", "quizzes", "teacher", "student", "students", "submission", "submissions", "score", "scores", "grading", "grade", "multiple-choice", "multiple choice"}},
 	{purpose: "Board-game/game arena application", fallback: "Board-game arena application", terms: []string{"board game", "board-game", "connect four", "connect-four", "tic-tac-toe", "reversi", "game session", "game sessions", "legal move", "legal moves", "ai move", "ai moves", "boardarena", "arena"}},
-	{purpose: "Portfolio/personal site", fallback: "Personal portfolio site", terms: []string{"portfolio", "resume", "projects", "case studies", "case study", "recruiter", "contact links", "personal site", "personal website"}},
+	{purpose: "Portfolio/personal site", fallback: "Personal portfolio site", terms: []string{"portfolio", "resume", "recruiter", "contact links", "personal site", "personal website", "showcase site"}},
 	{purpose: "Twitter-style social application", fallback: "Social web application", terms: []string{"tweet", "tweets", "post", "posts", "repost", "reposts", "follow", "followers", "following", "timeline", "hashtag", "hashtags", "mention", "mentions", "profile", "profiles"}},
 	{purpose: "Stock monitoring and alerting application", fallback: "Stock monitoring web application", terms: []string{"stock", "stocks", "market", "markets", "watchlist", "watchlists", "alert", "alerts", "alpaca", "spy", "trading", "candles", "ticker", "tickers"}},
 	{purpose: "Anime recommendation/discovery application", fallback: "Anime discovery web application", terms: []string{"anime", "recommendation", "recommendations", "recommend", "myanimelist", "mal", "catalog", "embeddings", "embedding", "pgvector", "similar", "similarity"}},
@@ -222,6 +224,9 @@ func inferPurpose(context models.ProjectContext, structure models.StructureMap, 
 	var best scoredPurpose
 	bestPurpose := "Unknown project purpose"
 	for _, rule := range purposeRules {
+		if rule.purpose == "Portfolio/personal site" && !explicitPortfolioText(strings.ToLower(strings.Join(append(readmeSignals, packageSignals...), " "))) {
+			continue
+		}
 		readmeScore := weightedPurposeScore(readmeSignals, rule.terms, 4)
 		packageScore := weightedPurposeScore(packageSignals, rule.terms, 3)
 		supportScore := weightedPurposeScore(supportSignals, rule.terms, 1)
@@ -336,9 +341,16 @@ func purposeSupportSignalText(context models.ProjectContext, structure models.St
 func genericPurposeFromReadme(context models.ProjectContext, stack models.StackInfo) string {
 	text := strings.ToLower(context.ReadmeTitle + " " + context.ReadmeSummary + " " + context.PackageDescription)
 	switch {
+	case strings.Contains(text, "developer dashboard") || strings.Contains(text, "devflow") || strings.Contains(text, "project tracker"):
+		if strings.Contains(text, "local-first") {
+			return "Local-first developer dashboard"
+		}
+		return "Developer dashboard"
+	case strings.Contains(text, "tauri") || strings.Contains(text, "desktop app") || strings.Contains(text, "desktop application"):
+		return "Tauri desktop app"
 	case strings.Contains(text, "assessment") || strings.Contains(text, "quiz"):
 		return "Assessment-taking web application"
-	case strings.Contains(text, "portfolio") || strings.Contains(text, "personal site") || strings.Contains(text, "personal website"):
+	case explicitPortfolioText(text):
 		return "Personal portfolio site"
 	case strings.Contains(text, "board game") || strings.Contains(text, "board-game") || strings.Contains(text, "connect four") || strings.Contains(text, "game arena"):
 		return "Board-game arena application"
@@ -349,6 +361,13 @@ func genericPurposeFromReadme(context models.ProjectContext, stack models.StackI
 	default:
 		return ""
 	}
+}
+
+func explicitPortfolioText(text string) bool {
+	if strings.Contains(text, "personal portfolio") || strings.Contains(text, "personal site") || strings.Contains(text, "personal website") {
+		return true
+	}
+	return strings.Contains(text, "portfolio") && (strings.Contains(text, "resume") || strings.Contains(text, "recruiter") || strings.Contains(text, "case stud") || strings.Contains(text, "showcase"))
 }
 
 func purposeEvidence(purpose string, context models.ProjectContext, structure models.StructureMap, routes []models.RouteInfo, score int) []string {
@@ -398,7 +417,7 @@ func scriptSignals(scripts map[string]string) []string {
 	var signals []string
 	for _, name := range sortedKeys(scripts) {
 		lower := strings.ToLower(name + " " + scripts[name])
-		for _, term := range []string{"worker", "health", "smoke", "migrate", "migration", "seed", "sync", "demo", "audit", "analyze", "dev", "build", "test"} {
+		for _, term := range []string{"tauri", "server", "server.js", "worker", "health", "smoke", "migrate", "migration", "seed", "sync", "demo", "audit", "analyze", "dev", "build", "test"} {
 			if strings.Contains(lower, term) {
 				signals = append(signals, name)
 				break
@@ -428,6 +447,9 @@ func AnalyzeStructureMap(files []models.FileInfo, routes []models.RouteInfo) mod
 func detectDirectoryRoles(files []models.FileInfo) []models.DirectoryRole {
 	counts := map[string]int{}
 	for _, file := range files {
+		if isRootLocalServer(file.Path) {
+			counts["./"]++
+		}
 		for _, dir := range directoryAncestors(file.Path) {
 			counts[dir]++
 		}
@@ -484,6 +506,10 @@ func directoryRoleRules() []directoryRule {
 		{"backend/routes/", "Backend API routes", "Backend routes directory detected."},
 		{"frontend/", "Frontend app", "Frontend directory detected."},
 		{"frontend/src/", "Frontend source code", "Frontend source directory detected."},
+		{"./", "Root local Node backend/server", "Root server entrypoint detected."},
+		{"src-tauri/", "Tauri desktop application shell", "Tauri source/config directory detected."},
+		{"src-tauri/src/", "Tauri/Rust backend code", "Tauri Rust source directory detected."},
+		{"src-tauri/capabilities/", "Tauri permissions/config", "Tauri capabilities directory detected."},
 	}
 }
 
@@ -502,9 +528,9 @@ func directoryAncestors(path string) []string {
 
 func roleImportance(path string) int {
 	switch path {
-	case "src/app/api/", "cmd/", "internal/", "src/lib/", "backend/", "backend/app/", "backend/app/api/", "backend/routes/", "frontend/", "frontend/src/", "api/", "database/migrations/", "db/migrations/", "migrations/":
+	case "./", "src-tauri/src/", "src-tauri/", "src/app/api/", "cmd/", "internal/", "src/lib/", "backend/", "backend/app/", "backend/app/api/", "backend/routes/", "frontend/", "frontend/src/", "api/", "database/migrations/", "db/migrations/", "migrations/":
 		return 3
-	case "src/", "src/app/", "scripts/", "database/", "db/", "src/components/":
+	case "src-tauri/capabilities/", "src/", "src/app/", "scripts/", "database/", "db/", "src/components/":
 		return 2
 	default:
 		return 1
@@ -569,9 +595,29 @@ func keyFileRole(file models.FileInfo, routeFiles map[string]models.RouteInfo) (
 		role.Role = "Vite config"
 		role.Evidence = []string{"Vite configuration file."}
 		role.Importance = "high"
+	case file.Path == "src-tauri/tauri.conf.json" || file.Path == "tauri.conf.json":
+		role.Role = "Tauri application config"
+		role.Evidence = []string{"Tauri configuration file."}
+		role.Importance = "high"
+	case file.Path == "src-tauri/Cargo.toml" || file.Path == "src-tauri/cargo.toml":
+		role.Role = "Tauri/Rust package manifest"
+		role.Evidence = []string{"Cargo manifest under src-tauri."}
+		role.Importance = "high"
 	case file.Path == "tsconfig.json":
 		role.Role = "TypeScript config"
 		role.Evidence = []string{"TypeScript compiler configuration."}
+	case isRootLocalServer(file.Path):
+		role.Role = "Local Node backend/server entrypoint"
+		role.Evidence = []string{"Root server/app file detected."}
+		role.Importance = "high"
+	case isFrontendEntrypointPath(file.Path):
+		role.Role = "Frontend application entrypoint"
+		role.Evidence = []string{"Vite/React-style frontend entrypoint detected."}
+		role.Importance = "high"
+	case file.Path == "src-tauri/src/main.rs" || file.Path == "src-tauri/src/lib.rs":
+		role.Role = "Tauri/Rust backend entrypoint"
+		role.Evidence = []string{"Tauri Rust entrypoint file."}
+		role.Importance = "high"
 	case strings.Contains(lower, "migration") || strings.Contains(lower, "migrations"):
 		role.Role = "Database migration"
 		role.Evidence = []string{"Path includes migration naming."}
@@ -612,6 +658,24 @@ func keyFileRole(file models.FileInfo, routeFiles map[string]models.RouteInfo) (
 		return models.FileRole{}, false
 	}
 	return role, true
+}
+
+func isRootLocalServer(path string) bool {
+	switch strings.ToLower(filepath.ToSlash(path)) {
+	case "server.js", "server.mjs", "app.js", "app.mjs":
+		return true
+	default:
+		return false
+	}
+}
+
+func isFrontendEntrypointPath(path string) bool {
+	switch strings.ToLower(filepath.ToSlash(path)) {
+	case "src/app.tsx", "src/app.ts", "src/app.jsx", "src/app.js", "src/main.tsx", "src/main.ts", "src/main.jsx", "src/main.js":
+		return true
+	default:
+		return false
+	}
 }
 
 func routeLooksHealth(path string, routeFiles map[string]models.RouteInfo) bool {

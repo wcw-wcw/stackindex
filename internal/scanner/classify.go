@@ -44,6 +44,8 @@ func languageForExt(ext string) string {
 	switch strings.ToLower(ext) {
 	case ".go":
 		return "Go"
+	case ".rs":
+		return "Rust"
 	case ".py":
 		return "Python"
 	case ".js", ".mjs", ".cjs":

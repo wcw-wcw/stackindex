@@ -2,6 +2,8 @@ package report
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +43,90 @@ func TestMarkdownRendersStructuredAISummary(t *testing.T) {
 	}
 	if strings.Contains(out, "could not parse") {
 		t.Fatalf("structured summary rendered parse fallback:\n%s", out)
+	}
+}
+
+func TestMarkdownRendersAgentInstructionsAndFreshness(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Index.Staleness = models.IndexStaleness{Stale: true, ChangedFileCount: 1, Recommendation: rerunRecommendation}
+
+	out := Markdown(analysis)
+	for _, want := range []string{
+		"## Agent Usage Instructions",
+		"- Read this file before broad searches.",
+		"- Use Feature Map for feature work.",
+		"- Use Route Implementation Chains for API work.",
+		"- Use Task Search Recipes before searching the whole repo.",
+		"- Open `repo-index.full.md` only when compact output is insufficient.",
+		"- Avoid generated/cache folders",
+		"## Index Freshness",
+		"- Index stale: yes",
+		"- Changed file count: 1",
+		"Rerun `stackindex analyze <repo> --no-tui`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestMarkdownRendersFeatureMapQualityWarning(t *testing.T) {
+	analysis := baseAnalysis()
+	analysis.Features.Quality = models.FeatureMapQuality{
+		Confidence:      "low",
+		Reason:          "Most candidate features were generated or generic tooling terms; use Agent Search Guide and Key Files first.",
+		CandidateCount:  5,
+		SuppressedCount: 4,
+		UsefulCount:     1,
+	}
+
+	out := Markdown(analysis)
+	for _, want := range []string{
+		"## Feature Map Quality",
+		"- Feature map confidence: low",
+		"Most candidate features were generated or generic tooling terms",
+		"Agent Search Guide and Key Files",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Markdown did not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRefreshStalenessDetectsChangedIndexedFile(t *testing.T) {
+	root := t.TempDir()
+	writeReportTestFile(t, filepath.Join(root, "main.go"), "package main\n")
+	analysis := &models.Analysis{
+		RepoPath:    root,
+		RepoName:    "demo",
+		GeneratedAt: time.Now(),
+		Files: []models.FileInfo{{
+			Path:      "main.go",
+			SizeBytes: int64(len("package main\n")),
+			Hash:      "old",
+			Kind:      models.FileKindSource,
+		}},
+		Index: models.IndexMetadata{
+			HashAlgorithm: "sha1",
+			IndexedFiles: []models.FileFingerprint{{
+				Path:      "main.go",
+				SizeBytes: int64(len("package main\n")),
+				Hash:      "old",
+			}},
+		},
+	}
+
+	if err := RefreshStaleness(root, analysis); err != nil {
+		t.Fatalf("RefreshStaleness returned error: %v", err)
+	}
+	if !analysis.Index.Staleness.Stale {
+		t.Fatal("Stale = false, want true")
+	}
+	if analysis.Index.Staleness.ChangedFileCount != 1 {
+		t.Fatalf("ChangedFileCount = %d, want 1", analysis.Index.Staleness.ChangedFileCount)
+	}
+	if !strings.Contains(Markdown(analysis), "- Index stale: yes") {
+		t.Fatalf("Markdown did not report stale index:\n%s", Markdown(analysis))
 	}
 }
 
@@ -541,4 +627,14 @@ func richAnalysis() *models.Analysis {
 		HasVercelConfig:      true,
 	}
 	return analysis
+}
+
+func writeReportTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
 }

@@ -132,8 +132,19 @@ type StructureMap struct {
 }
 
 type FeatureMap struct {
-	Features    []FeatureCluster `json:"features,omitempty"`
-	RouteChains []RouteChain     `json:"routeChains,omitempty"`
+	Features    []FeatureCluster  `json:"features,omitempty"`
+	RouteChains []RouteChain      `json:"routeChains,omitempty"`
+	Quality     FeatureMapQuality `json:"quality"`
+}
+
+type FeatureMapQuality struct {
+	Confidence       string `json:"confidence,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	CandidateCount   int    `json:"candidateCount,omitempty"`
+	SuppressedCount  int    `json:"suppressedCount,omitempty"`
+	UsefulCount      int    `json:"usefulCount,omitempty"`
+	GeneratedCount   int    `json:"generatedCount,omitempty"`
+	GenericTermCount int    `json:"genericTermCount,omitempty"`
 }
 
 type FeatureCluster struct {
@@ -235,6 +246,7 @@ type Analysis struct {
 	RepoName     string             `json:"repoName"`
 	GeneratedAt  time.Time          `json:"generatedAt"`
 	Files        []FileInfo         `json:"files"`
+	Index        IndexMetadata      `json:"index"`
 	Quality      IndexQuality       `json:"indexQuality"`
 	Stack        StackInfo          `json:"stack"`
 	PackageInfo  *PackageInfo       `json:"packageInfo,omitempty"`

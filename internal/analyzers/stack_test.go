@@ -60,3 +60,28 @@ func TestDetectStackDetectsPythonFastAPI(t *testing.T) {
 		t.Fatalf("Frameworks = %#v, want FastAPI", stack.Frameworks)
 	}
 }
+
+func TestDetectStackDetectsTauriFromFilesAndScripts(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json":              `{"scripts":{"tauri":"tauri dev"},"dependencies":{"@tauri-apps/api":"latest","vite":"latest","react":"latest"}}`,
+		"src-tauri/tauri.conf.json": `{}`,
+		"src-tauri/Cargo.toml":      `[package]\nname = "desktop"`,
+		"src-tauri/src/main.rs":     "fn main() {}",
+		"src/App.tsx":               "export default function App() { return null }",
+	})
+	files, err := scanner.Walk(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, _, err := AnalyzePackage(root, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stack := DetectStack(root, files, pkg)
+	if !contains(stack.Frameworks, "Tauri") {
+		t.Fatalf("Frameworks = %#v, want Tauri", stack.Frameworks)
+	}
+	if !contains(stack.Languages, "Rust") {
+		t.Fatalf("Languages = %#v, want Rust", stack.Languages)
+	}
+}

@@ -1,12 +1,9 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AnalyzeResponse,
-  askQuestion,
-  AskResponse,
   generateCLICommand,
   openJSONReport,
   openMarkdownReport,
-  QAEvidenceView,
   revealProjectFolder,
   revealSnapshotFolder,
   revealStackIndexFolder,
@@ -52,7 +49,6 @@ export function ReportWorkspace({ result, onRunAgain, onOpenSettings }: { result
           {activeSection === 'context' && <Context result={result} />}
           {activeSection === 'routes' && <Routes result={result} />}
           {activeSection === 'tests' && <Tests result={result} />}
-          {activeSection === 'ask' && <Ask />}
           {activeSection === 'ai' && <AINotes result={result} />}
           {activeSection === 'reports' && <Reports result={result} />}
         </article>
@@ -165,191 +161,6 @@ function Tests({ result }: { result: AnalyzeResponse }) {
   );
 }
 
-const suggestedQuestions = [
-  'What is this project for?',
-  'What stack does this use?',
-  'Where is auth handled?',
-  'Where are the API routes?',
-  'Where is the DB client?',
-  'How do I run this locally?',
-  'What should I review before deployment?',
-  'Where are env vars used?',
-  'What files should I read first?',
-  'Where are API calls made?',
-];
-
-const supportedCategories = [
-  'purpose',
-  'stack',
-  'auth/login',
-  'API routes',
-  'database/storage',
-  'local setup',
-  'deployment readiness',
-  'tests',
-  'env/config',
-  'important files',
-  'project structure',
-  'frontend/backend connection',
-];
-
-type AskMessage =
-  | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'stackindex'; response: AskResponse }
-  | { id: number; role: 'system'; text: string };
-
-function Ask() {
-  const [messages, setMessages] = useState<AskMessage[]>([]);
-  const [question, setQuestion] = useState('');
-  const [isAsking, setIsAsking] = useState(false);
-
-  async function submitAsk(event: FormEvent) {
-    event.preventDefault();
-    const nextQuestion = question.trim();
-    if (!nextQuestion || isAsking) {
-      return;
-    }
-    setQuestion('');
-    const userMessage: AskMessage = { id: Date.now(), role: 'user', text: nextQuestion };
-    if (nextQuestion === '/help') {
-      setMessages((current) => [
-        ...current,
-        userMessage,
-        { id: Date.now() + 1, role: 'system', text: helpText() },
-      ]);
-      return;
-    }
-    setMessages((current) => [...current, userMessage]);
-    setIsAsking(true);
-    try {
-      const response = await askQuestion({ question: nextQuestion });
-      setMessages((current) => [...current, { id: Date.now() + 1, role: 'stackindex', response }]);
-    } catch (err) {
-      setMessages((current) => [...current, { id: Date.now() + 1, role: 'system', text: errorMessage(err) }]);
-    } finally {
-      setIsAsking(false);
-    }
-  }
-
-  return (
-    <>
-      <SectionHeader title="Ask" subtitle="Deterministic Q&A from the current StackIndex analysis evidence." />
-      <div className="ask-panel">
-        {messages.length === 0 ? (
-          <div className="ask-empty">
-            <p className="body-copy">Ask about the current report. This pass uses local deterministic evidence only.</p>
-            <SuggestedQuestions onPick={setQuestion} />
-            <SupportedCategories />
-          </div>
-        ) : (
-          <div className="ask-thread" aria-live="polite">
-            {messages.map((message) => <AskBubble key={message.id} message={message} />)}
-            {isAsking && <p className="ask-status">StackIndex is checking report evidence...</p>}
-          </div>
-        )}
-        <form className="ask-form" onSubmit={submitAsk}>
-          <input
-            type="text"
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            placeholder='Ask a question or type "/help"'
-            aria-label="Ask StackIndex"
-          />
-          <button type="submit" disabled={!question.trim() || isAsking}>
-            Send
-          </button>
-        </form>
-      </div>
-    </>
-  );
-}
-
-function SuggestedQuestions({ onPick }: { onPick: (question: string) => void }) {
-  return (
-    <div className="suggested-questions">
-      {suggestedQuestions.map((item) => (
-        <button key={item} type="button" onClick={() => onPick(item)}>
-          {item}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SupportedCategories() {
-  return (
-    <div className="supported-categories">
-      <h3>Supported categories</h3>
-      <div className="chips">
-        {supportedCategories.map((item) => <StackChip key={item}>{item}</StackChip>)}
-      </div>
-    </div>
-  );
-}
-
-function AskBubble({ message }: { message: AskMessage }) {
-  if (message.role === 'user') {
-    return (
-      <div className="ask-message ask-user">
-        <span>you</span>
-        <p>{message.text}</p>
-      </div>
-    );
-  }
-  if (message.role === 'system') {
-    return (
-      <div className="ask-message ask-system">
-        <span>stackindex</span>
-        <p className="pre-line">{message.text}</p>
-      </div>
-    );
-  }
-  const response = message.response;
-  const isUnsupported = response.warnings?.includes('unsupported question type');
-  return (
-    <div className="ask-message ask-stackindex">
-      <span>stackindex</span>
-      <p>{response.answer}</p>
-      <div className="ask-meta">
-        <StatusBadge status={`confidence: ${response.confidence || 'unknown'}`} />
-        <StatusBadge status={`mode: ${response.mode || 'deterministic'}`} />
-      </div>
-      {response.warnings?.length ? <ListBlock title="Warnings" items={response.warnings} empty="No warnings." /> : null}
-      {isUnsupported && <SupportedCategories />}
-      <EvidenceList evidence={response.evidence} />
-    </div>
-  );
-}
-
-function EvidenceList({ evidence }: { evidence: QAEvidenceView[] }) {
-  if (!evidence.length) {
-    return <p className="empty">No evidence returned for this answer.</p>;
-  }
-  return (
-    <div className="evidence-list">
-      <h3>Evidence</h3>
-      {evidence.map((item, index) => (
-        <div className="evidence-card" key={`${item.kind}-${item.label}-${item.path}-${index}`}>
-          <span>{item.kind}</span>
-          <strong>{item.label}</strong>
-          {item.value && <p>{item.value}</p>}
-          {item.path && <code>{item.path}</code>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function helpText() {
-  return [
-    'Supported question categories:',
-    supportedCategories.join(', '),
-    '',
-    'Suggested questions:',
-    ...suggestedQuestions.map((item) => `- ${item}`),
-  ].join('\n');
-}
-
 function AINotes({ result }: { result: AnalyzeResponse }) {
   const ai = result.ai;
   return (
@@ -413,6 +224,10 @@ function Reports({ result }: { result: AnalyzeResponse }) {
     await copyText('CLI command', command);
   }
 
+  async function copyAgentInstructions() {
+    await copyText('agent instructions', agentInstructions(result));
+  }
+
   return (
     <>
       <SectionHeader title="Reports" subtitle="Files written by the local StackIndex analysis run." />
@@ -431,6 +246,9 @@ function Reports({ result }: { result: AnalyzeResponse }) {
         </button>
         <button type="button" className="secondary compact" onClick={() => runAction('Copy Markdown report path', () => copyText('Markdown report path', result.reports.markdownPath))}>
           Copy Markdown report path
+        </button>
+        <button type="button" className="secondary compact" onClick={() => runAction('Copy agent instructions', copyAgentInstructions)}>
+          Copy agent instructions
         </button>
         <button type="button" className="secondary compact" onClick={() => runAction('Copy full Markdown report path', () => copyText('Full Markdown report path', result.reports.fullMarkdownPath))}>
           Copy full Markdown report path
@@ -478,6 +296,17 @@ function Reports({ result }: { result: AnalyzeResponse }) {
       <p className="body-copy">Reports stay in `.stackindex` inside the analyzed project.</p>
     </>
   );
+}
+
+function agentInstructions(result: AnalyzeResponse) {
+  return [
+    `Read ${result.reports.markdownPath} before broad searches.`,
+    'Use Feature Map for feature work.',
+    'Use Route Implementation Chains for API work.',
+    'Use Task Search Recipes before searching the whole repo.',
+    `Open ${result.reports.fullMarkdownPath} only when compact output is insufficient.`,
+    'Avoid generated/cache folders such as .stackindex, node_modules, dist, build, and framework caches.',
+  ].join('\n');
 }
 
 function ChangesPanel({ changes }: { changes: AnalyzeResponse['reports']['changes'] }) {

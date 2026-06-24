@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/wcw-wcw/stackindex/internal/models"
+	"github.com/wcw-wcw/stackindex/internal/scanner"
 )
 
 type Recommendation struct {
@@ -72,8 +72,8 @@ func LoadAnalysis(root string) (*models.Analysis, string, error) {
 	if err := json.Unmarshal(data, &analysis); err != nil {
 		return nil, path, fmt.Errorf("could not read StackIndex analysis at %s: %w", path, err)
 	}
-	if stale, newest := analysisLooksStale(absRoot, &analysis); stale {
-		return nil, path, fmt.Errorf("StackIndex analysis at %s may be stale; newest source file changed at %s after analysis was generated at %s. Run `stackindex analyze %s --no-tui`", path, newest.Format("2006-01-02 15:04:05"), analysis.GeneratedAt.Format("2006-01-02 15:04:05"), shellQuote(absRoot))
+	if stale, changedPath := analysisLooksStale(absRoot, &analysis); stale {
+		return nil, path, fmt.Errorf("StackIndex analysis at %s is stale; indexed file changed: %s. Run `stackindex analyze %s --no-tui`", path, changedPath, shellQuote(absRoot))
 	}
 	return &analysis, path, nil
 }
@@ -90,12 +90,13 @@ func Plan(task string, analysis *models.Analysis) SearchPlan {
 	bestFeature, featureScore := matchFeature(tokens, analysis.Features.Features)
 	if bestFeature != nil {
 		for _, path := range bestFeature.StartHere {
-			addCandidate(candidates, path, 80+featureScore, "matches feature "+bestFeature.Name)
+			addCandidate(candidates, path, 90+featureScore+pathTokenScore(tokens, path)+directFeaturePathBonus(tokens, path), "matches feature "+bestFeature.Name)
 			dirScores[parentDir(path)] += 4
 		}
 		for _, path := range bestFeature.RelatedTests {
-			addCandidate(tests, path, 55+featureScore, "related test for feature "+bestFeature.Name)
-			addCandidate(candidates, path, 35+featureScore, "test evidence for feature "+bestFeature.Name)
+			testScore := 70 + featureScore + pathTokenScore(tokens, path) + relatedTestBonus(tokens, path)
+			addCandidate(tests, path, testScore, "related test for feature "+bestFeature.Name)
+			addCandidate(candidates, path, testScore-18, "test evidence for feature "+bestFeature.Name)
 		}
 		for _, term := range bestFeature.SearchTerms {
 			termScores[term] += 5
@@ -111,12 +112,13 @@ func Plan(task string, analysis *models.Analysis) SearchPlan {
 			continue
 		}
 		for i, path := range chain.Files {
-			addCandidate(candidates, path, score+routeChainFileBonus(path)-i, "route chain for "+chain.Route)
+			addCandidate(candidates, path, score+routeChainFileBonus(tokens, path)-i, "route chain for "+chain.Route)
 			dirScores[parentDir(path)] += 3
 		}
 		for _, path := range chain.Tests {
-			addCandidate(tests, path, score+25, "test near route chain "+chain.Route)
-			addCandidate(candidates, path, score+10, "test near route chain "+chain.Route)
+			testScore := score + 35 + relatedTestBonus(tokens, path)
+			addCandidate(tests, path, testScore, "test near route chain "+chain.Route)
+			addCandidate(candidates, path, testScore-12, "test near route chain "+chain.Route)
 		}
 		for _, term := range routeTerms(chain.Route) {
 			termScores[term] += 3
@@ -135,7 +137,7 @@ func Plan(task string, analysis *models.Analysis) SearchPlan {
 	for _, file := range analysis.Dependencies.TopConnectedFiles {
 		score := pathTokenScore(tokens, file.Path)
 		if score > 0 {
-			addCandidate(candidates, file.Path, score+12, "dependency hub related to task terms")
+			addCandidate(candidates, file.Path, score+4, "dependency hub related to task terms")
 		}
 	}
 
@@ -458,15 +460,23 @@ func addSpecializedTaskCandidates(tokens map[string]bool, analysis *models.Analy
 	if tokens["env"] || tokens["environment"] || tokens["deploy"] || tokens["deployment"] || tokens["config"] {
 		for _, file := range analysis.Files {
 			lower := strings.ToLower(file.Path)
+			if strings.HasSuffix(lower, ".d.ts") {
+				continue
+			}
 			switch {
 			case file.Path == ".env.example":
-				addCandidate(candidates, file.Path, 90, "environment template")
+				addCandidate(candidates, file.Path, 110, "environment template")
 			case strings.Contains(lower, "/config/") || strings.Contains(lower, "env."):
-				addCandidate(candidates, file.Path, 80, "configuration/env file")
+				score := 100
+				if isTestPath(file.Path) {
+					score = 88
+					addCandidate(tests, file.Path, score, "configuration/env test")
+				}
+				addCandidate(candidates, file.Path, score, "configuration/env file")
 			case file.Path == "package.json":
-				addCandidate(candidates, file.Path, 65, "scripts and deployment commands")
+				addCandidate(candidates, file.Path, 95, "scripts and deployment commands")
 			case strings.Contains(lower, "deploy") || strings.Contains(lower, "readme"):
-				addCandidate(candidates, file.Path, 50, "deployment/setup documentation")
+				addCandidate(candidates, file.Path, 65, "deployment/setup documentation")
 			}
 		}
 		termScores["env"] += 5
@@ -531,15 +541,50 @@ func plannerPathRank(path string) int {
 	}
 }
 
-func routeChainFileBonus(path string) int {
+func directFeaturePathBonus(tokens map[string]bool, path string) int {
 	lower := strings.ToLower(path)
+	score := 0
+	if tokens["worker"] || tokens["tick"] || tokens["job"] {
+		if strings.Contains(lower, "worker") || strings.Contains(lower, "tick") {
+			score += 24
+		}
+	}
+	if tokens["market"] || tokens["bars"] || tokens["quote"] || tokens["provider"] {
+		if strings.Contains(lower, "market") || strings.Contains(lower, "bars") || strings.Contains(lower, "provider") {
+			score += 24
+		}
+	}
+	if tokens["env"] || tokens["environment"] || tokens["deploy"] || tokens["deployment"] || tokens["config"] {
+		if path == ".env.example" || strings.Contains(lower, "/config/") || strings.Contains(lower, "env.") || strings.Contains(lower, "deploy") {
+			score += 28
+		}
+	}
+	if isTestPath(path) {
+		score -= 8
+	}
+	return score
+}
+
+func relatedTestBonus(tokens map[string]bool, path string) int {
+	score := pathTokenScore(tokens, path)
+	if isTestPath(path) {
+		score += 16
+	}
+	return score
+}
+
+func routeChainFileBonus(tokens map[string]bool, path string) int {
+	lower := strings.ToLower(path)
+	if strings.Contains(lower, "/api/") {
+		return 42 + directFeaturePathBonus(tokens, path)
+	}
 	if strings.Contains(lower, "schema") || strings.Contains(lower, "validat") {
-		return 34
+		return 38 + directFeaturePathBonus(tokens, path)
 	}
-	if strings.Contains(lower, "repositor") || strings.Contains(lower, "/db/") {
-		return 32
+	if strings.Contains(lower, "repositor") || strings.Contains(lower, "/db/") || strings.Contains(lower, "session") {
+		return 20 + directFeaturePathBonus(tokens, path)
 	}
-	return plannerPathRank(path) * 2
+	return plannerPathRank(path)*2 + directFeaturePathBonus(tokens, path)
 }
 
 func symbolFileBonus(path string) int {
@@ -853,24 +898,36 @@ func round2(value float64) float64 {
 	return math.Round(value*100) / 100
 }
 
-func analysisLooksStale(root string, analysis *models.Analysis) (bool, time.Time) {
-	if analysis == nil || analysis.GeneratedAt.IsZero() {
-		return false, time.Time{}
+func analysisLooksStale(root string, analysis *models.Analysis) (bool, string) {
+	if analysis == nil {
+		return false, ""
 	}
-	newest := time.Time{}
-	for _, file := range analysis.Files {
-		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(file.Path)))
-		if err != nil {
-			continue
+	walk, err := scanner.WalkDetailed(root)
+	if err != nil {
+		return false, ""
+	}
+	current := map[string]models.FileInfo{}
+	for _, file := range walk.Files {
+		current[file.Path] = file
+	}
+	indexed := analysis.Index.IndexedFiles
+	if len(indexed) == 0 {
+		return false, ""
+	}
+	previous := map[string]bool{}
+	for _, file := range indexed {
+		previous[file.Path] = true
+		now, ok := current[file.Path]
+		if !ok || now.Hash != file.Hash || now.SizeBytes != file.SizeBytes {
+			return true, file.Path
 		}
-		if info.ModTime().After(newest) {
-			newest = info.ModTime()
+	}
+	for _, file := range walk.Files {
+		if !previous[file.Path] {
+			return true, file.Path
 		}
 	}
-	if newest.IsZero() {
-		return false, newest
-	}
-	return newest.After(analysis.GeneratedAt.Add(2 * time.Second)), newest
+	return false, ""
 }
 
 func shellQuote(path string) string {

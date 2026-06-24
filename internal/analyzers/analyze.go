@@ -44,10 +44,19 @@ func Analyze(root string) (*models.Analysis, error) {
 	findings = append(findings, deploymentFindings...)
 
 	return &models.Analysis{
-		RepoPath:     absRoot,
-		RepoName:     filepath.Base(absRoot),
-		GeneratedAt:  time.Now(),
-		Files:        files,
+		RepoPath:    absRoot,
+		RepoName:    filepath.Base(absRoot),
+		GeneratedAt: time.Now(),
+		Files:       files,
+		Index: models.IndexMetadata{
+			HashAlgorithm: "sha1",
+			IndexedFiles:  fileFingerprints(files),
+			Staleness: models.IndexStaleness{
+				Stale:            false,
+				ChangedFileCount: 0,
+				Recommendation:   "Index is current.",
+			},
+		},
 		Quality:      quality,
 		Stack:        stack,
 		PackageInfo:  pkg,
@@ -62,6 +71,18 @@ func Analyze(root string) (*models.Analysis, error) {
 		Deployment:   deployment,
 		Findings:     findings,
 	}, nil
+}
+
+func fileFingerprints(files []models.FileInfo) []models.FileFingerprint {
+	out := make([]models.FileFingerprint, 0, len(files))
+	for _, file := range files {
+		out = append(out, models.FileFingerprint{
+			Path:      file.Path,
+			SizeBytes: file.SizeBytes,
+			Hash:      file.Hash,
+		})
+	}
+	return out
 }
 
 func countUnresolvedInternalImports(imports []models.UnresolvedImport) int {

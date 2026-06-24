@@ -25,6 +25,9 @@ func ExportAll(root string, analysis *models.Analysis) error {
 	if err := AttachChangeSummary(root, analysis); err != nil {
 		return err
 	}
+	if err := RefreshStaleness(root, analysis); err != nil {
+		return err
+	}
 	if err := WriteJSON(root, analysis); err != nil {
 		return err
 	}
@@ -57,10 +60,14 @@ func markdown(a *models.Analysis, full bool) string {
 		fmt.Fprintf(&b, "This compact file is an agent-facing search plan. Read it before broad file searches so follow-up exploration can stay targeted. Open `repo-index.full.md` only when you need verbose routes, env vars, scripts, findings, or file counts.\n\n")
 	}
 
+	writeAgentUsageInstructions(&b)
+
 	fmt.Fprintf(&b, "## Repository Snapshot\n\n")
 	fmt.Fprintf(&b, "- Repository: `%s`\n- Path: `%s`\n- Files indexed: %d\n- Finding summary: %s\n\n", a.RepoName, a.RepoPath, len(a.Files), findingSummary(a.Findings))
+	writeIndexStaleness(&b, a)
 
 	writeIndexQuality(&b, a)
+	writeFeatureMapQuality(&b, a)
 	writeProjectContext(&b, a)
 	writeFeatureMap(&b, a, full)
 	writeTaskSearchRecipes(&b, a)
@@ -104,6 +111,48 @@ func markdown(a *models.Analysis, full bool) string {
 		fmt.Fprintln(&b, "- Keep this index current by running `stackindex analyze . --no-tui` after meaningful repository changes.")
 	}
 	return b.String()
+}
+
+func writeFeatureMapQuality(b *strings.Builder, a *models.Analysis) {
+	q := a.Features.Quality
+	if q.Confidence != "low" {
+		return
+	}
+	reason := strings.TrimSpace(q.Reason)
+	if reason == "" {
+		reason = "Feature Map has limited useful compact features; use Agent Search Guide and Key Files first."
+	}
+	fmt.Fprintf(b, "## Feature Map Quality\n\n")
+	fmt.Fprintln(b, "- Feature map confidence: low")
+	fmt.Fprintf(b, "- Reason: %s\n", reason)
+	fmt.Fprintln(b, "- Start with Agent Search Guide and Key Files before broad searches.")
+	fmt.Fprintln(b)
+}
+
+func writeAgentUsageInstructions(b *strings.Builder) {
+	fmt.Fprintf(b, "## Agent Usage Instructions\n\n")
+	fmt.Fprintln(b, "- Read this file before broad searches.")
+	fmt.Fprintln(b, "- Use Feature Map for feature work.")
+	fmt.Fprintln(b, "- Use Route Implementation Chains for API work.")
+	fmt.Fprintln(b, "- Use Task Search Recipes before searching the whole repo.")
+	fmt.Fprintln(b, "- Open `repo-index.full.md` only when compact output is insufficient.")
+	fmt.Fprintln(b, "- Avoid generated/cache folders such as `.stackindex/`, `node_modules/`, `dist/`, `build/`, and framework caches.")
+	fmt.Fprintln(b)
+}
+
+func writeIndexStaleness(b *strings.Builder, a *models.Analysis) {
+	stale := a.Index.Staleness
+	fmt.Fprintf(b, "## Index Freshness\n\n")
+	fmt.Fprintf(b, "- Index stale: %s\n", present(stale.Stale))
+	if stale.Stale {
+		fmt.Fprintf(b, "- Changed file count: %d\n", stale.ChangedFileCount)
+		if stale.Recommendation != "" {
+			fmt.Fprintf(b, "- Recommendation: %s\n", stale.Recommendation)
+		}
+	} else {
+		fmt.Fprintln(b, "- Changed file count: 0")
+	}
+	fmt.Fprintln(b)
 }
 
 func writeIndexQuality(b *strings.Builder, a *models.Analysis) {
@@ -287,7 +336,7 @@ func agentReadFirstFiles(a *models.Analysis) []models.FileRole {
 	if len(a.Structure.KeyFiles) == 0 {
 		return nil
 	}
-	priorities := []string{"entrypoint", "package manifest", "readme", "configuration", "route", "deployment", "test"}
+	priorities := []string{"package manifest", "readme", "frontend", "server", "tauri", "entrypoint", "configuration", "route", "deployment", "test"}
 	var out []models.FileRole
 	seen := map[string]bool{}
 	for _, priority := range priorities {

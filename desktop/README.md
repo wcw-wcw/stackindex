@@ -72,8 +72,8 @@ Implemented:
 - optional local Ollama-backed AI summary using StackIndex's existing fallback behavior
 - analyze through `internal/app.Analyze`
 - export reports through `internal/app.ExportReports`
-- show a clickable report workspace with overview, audit, context, routes, tests, Ask, AI notes, reports, snapshot history, and change summaries
-- reports tab actions for copying paths, opening JSON/Markdown, and revealing folders
+- show a clickable report workspace with overview, audit, context, routes, tests, AI notes, reports, snapshot history, and change summaries
+- reports tab actions for copying paths or agent instructions, opening compact/full Markdown, opening JSON, and revealing folders
 - recent projects and previous report loading through `.stackindex/analysis.json`
 - local snapshot history under `.stackindex/history/<timestamp>/`
 - same-repo change summaries against the most recent previous snapshot
@@ -107,8 +107,6 @@ The desktop backend normalizes either form to `https://github.com/owner/repo.git
 <cached repo>/.stackindex/reports/repo-index.md
 <cached repo>/.stackindex/history/<timestamp>/analysis.json
 <cached repo>/.stackindex/history/<timestamp>/repo-index.md
-<cached repo>/.stackindex/qa/latest-question.json
-<cached repo>/.stackindex/qa/history.jsonl
 ```
 
 Repositories are cached under the OS user cache directory:
@@ -136,27 +134,19 @@ Current GitHub limitations:
 - no branch selector
 - no cross-repo or branch comparison
 
-## Reports, Ask, and History
+## Reports and History
 
 The desktop app uses the same local report files as the CLI:
 
 ```text
 .stackindex/analysis.json
 .stackindex/reports/repo-index.md
+.stackindex/reports/repo-index.full.md
 .stackindex/history/<timestamp>/analysis.json
 .stackindex/history/<timestamp>/repo-index.md
-.stackindex/qa/latest-question.json
-.stackindex/qa/history.jsonl
+.stackindex/history/<timestamp>/repo-index.full.md
 ```
 
 Open Existing Report reads `.stackindex/analysis.json` without rerunning analysis or creating a new snapshot. New local or public-GitHub analyses write the latest report files and create a timestamped snapshot. The Reports tab lists recent snapshots and shows a deterministic same-repo change summary when at least one previous snapshot exists.
 
-Ask uses deterministic StackIndex evidence by default. Supported examples include:
-
-```text
-Where is auth handled?
-Where is the database initialized?
-How do I run this locally?
-What files should I read first?
-What changed since last analysis?
-```
+The desktop app intentionally does not expose repo Q&A, chat, `plan`, or `eval`. Its job is to select/analyze a repository, open compact or full index artifacts, and copy paths or agent instructions for coding-agent handoff.

@@ -23,7 +23,7 @@ const usage = `StackIndex - local-first codebase analyzer
 
 Usage:
   stackindex
-  stackindex analyze [path] [--json] [--no-tui] [--ai] [--model llama3.2:3b] [--ai-debug]
+  stackindex analyze [path] [--json] [--no-tui] [--agents-md] [--ai] [--model llama3.2:3b] [--ai-debug]
   stackindex audit [path] [--json] [--allow-medium] [--allow-missing-tests] [--fail-on-low] [--ai]
   stackindex ask [path] "question" [--json] [--ai] [--model llama3.2:3b] [--ai-debug]
   stackindex plan <repo> "task" [--json]
@@ -33,6 +33,7 @@ Usage:
 Examples:
   stackindex analyze .
   stackindex analyze ./path-to-project --no-tui
+  stackindex analyze . --no-tui --agents-md
   stackindex analyze . --json
   stackindex analyze . --ai --model llama3.2:3b
   stackindex audit .
@@ -216,6 +217,9 @@ func analyze(args []string, auditMode bool) error {
 	enableAI := fs.Bool("ai", false, "enable optional local Ollama analysis")
 	aiDebug := fs.Bool("ai-debug", false, "write local AI prompt/response diagnostics under .stackindex/ai-debug")
 	model := fs.String("model", "", "Ollama model to use when --ai is enabled; default tries llama3.2:3b then qwen:7b")
+	agentsMD := fs.Bool("agents-md", false, "write concise generated AGENTS.md instructions to .stackindex/AGENTS.md")
+	agentsMDRoot := fs.Bool("agents-md-root", false, "write AGENTS.md at the repository root instead of .stackindex/AGENTS.md")
+	agentsMDForce := fs.Bool("agents-md-force", false, "allow --agents-md-root to overwrite an existing root AGENTS.md")
 	if err := fs.Parse(normalizeAnalyzeArgs(args)); err != nil {
 		return err
 	}
@@ -268,23 +272,34 @@ func analyze(args []string, auditMode bool) error {
 	if err := app.ExportReports(root, analysis); err != nil {
 		return err
 	}
+	agentsPath := ""
+	if *agentsMD || *agentsMDRoot {
+		path, err := report.WriteAgentsMD(root, analysis, report.AgentsOptions{RootTarget: *agentsMDRoot, Force: *agentsMDForce})
+		if err != nil {
+			return err
+		}
+		agentsPath = path
+	}
 	if nonInteractiveAudit {
 		printAuditSummary(analysis)
 		return auditError(analysis.Audit)
 	}
 	if *noTUI {
-		printExportSummary(root)
+		printExportSummary(root, agentsPath)
 		return nil
 	}
 	return launchTUI(analysis, root)
 }
 
-func printExportSummary(root string) {
+func printExportSummary(root, agentsPath string) {
 	outDir := filepath.Join(root, ".stackindex")
 	fmt.Printf("StackIndex analysis exported to %s\n", outDir)
 	fmt.Printf("JSON: %s\n", filepath.Join(outDir, "analysis.json"))
 	fmt.Printf("Markdown: %s\n", filepath.Join(outDir, "reports", "repo-index.md"))
 	fmt.Printf("Full Markdown: %s\n", filepath.Join(outDir, "reports", "repo-index.full.md"))
+	if agentsPath != "" {
+		fmt.Printf("Agent instructions: %s\n", agentsPath)
+	}
 	fmt.Println("Note: .stackindex is a hidden folder on macOS Finder. Press Cmd+Shift+. in Finder to show hidden files.")
 }
 
@@ -329,7 +344,7 @@ func normalizeAnalyzeArgs(args []string) []string {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {
-		case "--json", "--no-tui", "--audit", "--allow-medium", "--allow-missing-tests", "--fail-on-low", "--ai", "--ai-debug", "-json", "-no-tui", "-audit", "-allow-medium", "-allow-missing-tests", "-fail-on-low", "-ai", "-ai-debug":
+		case "--json", "--no-tui", "--audit", "--allow-medium", "--allow-missing-tests", "--fail-on-low", "--ai", "--ai-debug", "--agents-md", "--agents-md-root", "--agents-md-force", "-json", "-no-tui", "-audit", "-allow-medium", "-allow-missing-tests", "-fail-on-low", "-ai", "-ai-debug", "-agents-md", "-agents-md-root", "-agents-md-force":
 			flags = append(flags, arg)
 		case "--model", "-model":
 			flags = append(flags, arg)
@@ -387,7 +402,7 @@ func normalizePlanArgs(args []string) []string {
 }
 
 func isBoolFlagAssignment(arg string) bool {
-	for _, prefix := range []string{"--json=", "--no-tui=", "--audit=", "--allow-medium=", "--allow-missing-tests=", "--fail-on-low=", "--ai=", "--ai-debug=", "-json=", "-no-tui=", "-audit=", "-allow-medium=", "-allow-missing-tests=", "-fail-on-low=", "-ai=", "-ai-debug="} {
+	for _, prefix := range []string{"--json=", "--no-tui=", "--audit=", "--allow-medium=", "--allow-missing-tests=", "--fail-on-low=", "--ai=", "--ai-debug=", "--agents-md=", "--agents-md-root=", "--agents-md-force=", "-json=", "-no-tui=", "-audit=", "-allow-medium=", "-allow-missing-tests=", "-fail-on-low=", "-ai=", "-ai-debug=", "-agents-md=", "-agents-md-root=", "-agents-md-force="} {
 		if strings.HasPrefix(arg, prefix) {
 			return true
 		}

@@ -12,11 +12,24 @@ func DetectStack(root string, files []models.FileInfo, pkg *models.PackageInfo) 
 	var stack models.StackInfo
 	for _, file := range files {
 		switch file.Language {
-		case "Go", "JavaScript", "TypeScript", "TSX", "JSX", "Python":
+		case "Go", "JavaScript", "TypeScript", "TSX", "JSX", "Python", "Rust":
 			stack.Languages = appendUnique(stack.Languages, normalizeLanguage(file.Language))
 		}
 		lowerPath := strings.ToLower(filepath.ToSlash(file.Path))
 		base := strings.ToLower(filepath.Base(lowerPath))
+		if strings.HasPrefix(lowerPath, "src-tauri/") {
+			stack.Frameworks = appendUnique(stack.Frameworks, "Tauri")
+			if strings.HasSuffix(lowerPath, ".rs") {
+				stack.Languages = appendUnique(stack.Languages, "Rust")
+			}
+		}
+		if lowerPath == "src-tauri/tauri.conf.json" || lowerPath == "tauri.conf.json" {
+			stack.Frameworks = appendUnique(stack.Frameworks, "Tauri")
+		}
+		if lowerPath == "src-tauri/cargo.toml" {
+			stack.Frameworks = appendUnique(stack.Frameworks, "Tauri")
+			stack.Languages = appendUnique(stack.Languages, "Rust")
+		}
 		switch lowerPath {
 		case "vercel.json":
 			stack.Deployment = appendUnique(stack.Deployment, "Vercel")
@@ -47,6 +60,12 @@ func DetectStack(root string, files []models.FileInfo, pkg *models.PackageInfo) 
 	}
 	if pkg != nil {
 		addDepStack(pkg, &stack)
+		for name, command := range pkg.Scripts {
+			lower := strings.ToLower(name + " " + command)
+			if strings.Contains(lower, "tauri") {
+				stack.Frameworks = appendUnique(stack.Frameworks, "Tauri")
+			}
+		}
 	}
 	return stack
 }

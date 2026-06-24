@@ -138,6 +138,30 @@ A personal portfolio built with Next.js, TypeScript, Tailwind CSS, and Vercel to
 	}
 }
 
+func TestAnalyzeProjectContextPrefersDevFlowDashboardOverPortfolio(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"README.md": `# DevFlow
+
+DevFlow is a local-first developer dashboard and project tracker for coding sessions, tasks, notes, and local workflow state. It is a desktop productivity app, not a portfolio or resume site.`,
+		"package.json":              `{"name":"devflow","description":"Local-first developer dashboard","scripts":{"dev":"vite","dev:api":"node server.js","tauri":"tauri dev"},"dependencies":{"@tauri-apps/api":"latest","vite":"latest","react":"latest","express":"latest"}}`,
+		"src/App.tsx":               "export default function App() { return null }",
+		"server.js":                 `const express = require("express"); const app = express(); app.get("/api/projects", (_req, res) => res.json([]));`,
+		"src-tauri/tauri.conf.json": `{}`,
+		"src-tauri/Cargo.toml":      `[package]\nname = "devflow"`,
+		"src-tauri/src/main.rs":     "fn main() {}",
+	})
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.Context.Purpose != "Local-first developer dashboard" {
+		t.Fatalf("Purpose = %q, want local-first developer dashboard; context=%+v", analysis.Context.Purpose, analysis.Context)
+	}
+	if strings.Contains(strings.ToLower(analysis.Context.Purpose), "portfolio") {
+		t.Fatalf("DevFlow-style README was classified as portfolio: %+v", analysis.Context)
+	}
+}
+
 func TestAnalyzeProjectContextInfersStackIndexPurpose(t *testing.T) {
 	root := tempProject(t, map[string]string{
 		"README.md":                     "# StackIndex\n\nStackIndex is a Go CLI/TUI repository analysis tool that scans codebases, runs audit checks, and writes Markdown/JSON reports.",
@@ -313,6 +337,73 @@ func TestAnalyzeStructureMapIncludesAnimerecStyleDirectories(t *testing.T) {
 	}
 }
 
+func TestAnalyzeStructureMapDetectsTauriAndRootServerRoles(t *testing.T) {
+	files := []models.FileInfo{
+		{Path: "package.json", Kind: models.FileKindConfig},
+		{Path: "README.md", Kind: models.FileKindDoc},
+		{Path: "src/App.tsx", Kind: models.FileKindSource},
+		{Path: "src/main.tsx", Kind: models.FileKindSource},
+		{Path: "server.js", Kind: models.FileKindSource},
+		{Path: "src-tauri/tauri.conf.json", Kind: models.FileKindConfig},
+		{Path: "src-tauri/Cargo.toml", Kind: models.FileKindConfig},
+		{Path: "src-tauri/src/main.rs", Kind: models.FileKindSource},
+		{Path: "src-tauri/capabilities/default.json", Kind: models.FileKindConfig},
+		{Path: "src-tauri/gen/schemas/window.json", Kind: models.FileKindConfig},
+	}
+	structure := AnalyzeStructureMap(files, nil)
+	for _, want := range []struct {
+		path string
+		role string
+	}{
+		{"./", "Root local Node backend/server"},
+		{"src-tauri/src/", "Tauri/Rust backend code"},
+		{"src-tauri/capabilities/", "Tauri permissions/config"},
+	} {
+		if !hasDirectoryRole(structure.Directories, want.path, want.role) {
+			t.Fatalf("missing directory role %+v from %+v", want, structure.Directories)
+		}
+	}
+	for _, want := range []struct {
+		path string
+		role string
+	}{
+		{"server.js", "Local Node backend/server entrypoint"},
+		{"src/App.tsx", "Frontend application entrypoint"},
+		{"src-tauri/src/main.rs", "Tauri/Rust backend entrypoint"},
+		{"src-tauri/tauri.conf.json", "Tauri application config"},
+	} {
+		if !hasFileRole(structure.KeyFiles, want.path, want.role) {
+			t.Fatalf("missing key file role %+v from %+v", want, structure.KeyFiles)
+		}
+	}
+}
+
+func TestAnalyzeDetectsRootServerFromPackageScriptsAndFileConnections(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json": `{"name":"local-api","scripts":{"dev:api":"node server.js","start":"node server.js"},"dependencies":{"express":"latest","vite":"latest","react":"latest"}}`,
+		"README.md":    "# Local API\n\nA local-first developer dashboard.",
+		"server.js": `const express = require("express");
+const app = express();
+const store = require("./src/lib/store.js");
+app.get("/api/projects", (_req, res) => res.json(store.projects));`,
+		"src/lib/store.js": `exports.projects = [];`,
+		"src/App.tsx":      "export default function App() { return null }",
+	})
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFileRole(analysis.Structure.KeyFiles, "server.js", "Local Node backend/server entrypoint") {
+		t.Fatalf("missing server.js key role: %+v", analysis.Structure.KeyFiles)
+	}
+	if !hasConnectedFile(analysis.Dependencies.TopConnectedFiles, "server.js") {
+		t.Fatalf("server.js missing from file connections: %+v", analysis.Dependencies.TopConnectedFiles)
+	}
+	if !contains(analysis.Context.ScriptSignals, "dev:api") && !contains(analysis.Context.ScriptSignals, "start") {
+		t.Fatalf("package scripts did not produce backend signal: %+v", analysis.Context.ScriptSignals)
+	}
+}
+
 func TestAnalyzePackageExtractsPackageDescription(t *testing.T) {
 	info, err := ParsePackageJSON([]byte(`{"name":"demo","description":"Demo app","scripts":{"build":"vite build"}}`))
 	if err != nil {
@@ -359,6 +450,15 @@ func hasDirectoryRole(roles []models.DirectoryRole, path, role string) bool {
 func hasFileRole(roles []models.FileRole, path, role string) bool {
 	for _, item := range roles {
 		if item.Path == path && item.Role == role {
+			return true
+		}
+	}
+	return false
+}
+
+func hasConnectedFile(files []models.ConnectedFileSummary, path string) bool {
+	for _, item := range files {
+		if item.Path == path {
 			return true
 		}
 	}

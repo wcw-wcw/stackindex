@@ -200,26 +200,6 @@ export type ChangeView = {
   auditStatusAfter?: string;
 };
 
-export type AskRequest = {
-  question: string;
-};
-
-export type AskResponse = {
-  question: string;
-  answer: string;
-  confidence: string;
-  mode: string;
-  evidence: QAEvidenceView[];
-  warnings?: string[];
-};
-
-export type QAEvidenceView = {
-  kind: string;
-  label: string;
-  value: string;
-  path?: string;
-};
-
 declare global {
   interface Window {
     go?: {
@@ -227,7 +207,6 @@ declare global {
         App?: {
           AnalyzeGitHubRepo(request: GitHubAnalyzeRequest): Promise<AnalyzeResponse>;
           AnalyzeProject(request: AnalyzeRequest): Promise<AnalyzeResponse>;
-          AskQuestion(request: AskRequest): Promise<AskResponse>;
           BrowseFolder(): Promise<string>;
           ClearGitHubCache(): Promise<void>;
           ClearRecentProjects(): Promise<void>;
@@ -324,10 +303,6 @@ export function openJSONReport(request: PathActionRequest) {
 
 export function generateCLICommand(request: CLICommandRequest) {
   return backend().GenerateCLICommand(request);
-}
-
-export function askQuestion(request: AskRequest) {
-  return backend().AskQuestion(request);
 }
 
 export function browseFolder() {

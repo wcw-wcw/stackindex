@@ -125,6 +125,44 @@ func TestAuditResultAbsentOutsideAuditMode(t *testing.T) {
 	}
 }
 
+func TestAnalyzeAgentsMDWritesStackIndexAgentsFile(t *testing.T) {
+	root := healthyProject(t)
+
+	err := analyze([]string{root, "--no-tui", "--agents-md"}, false)
+	if err != nil {
+		t.Fatalf("analyze --agents-md returned error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".stackindex", "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read .stackindex/AGENTS.md: %v", err)
+	}
+	out := string(data)
+	if !strings.Contains(out, "Read `.stackindex/reports/repo-index.md` first.") {
+		t.Fatalf("AGENTS.md missing repo-index instruction:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("root AGENTS.md stat err = %v, want not exist", err)
+	}
+}
+
+func TestAnalyzeAgentsMDRootDoesNotOverwriteWithoutForce(t *testing.T) {
+	root := healthyProject(t)
+	rootAgents := filepath.Join(root, "AGENTS.md")
+	writeTestFile(t, rootAgents, "existing instructions\n")
+
+	err := analyze([]string{root, "--no-tui", "--agents-md-root"}, false)
+	if err == nil {
+		t.Fatal("analyze --agents-md-root returned nil, want overwrite error")
+	}
+	data, readErr := os.ReadFile(rootAgents)
+	if readErr != nil {
+		t.Fatalf("read root AGENTS.md: %v", readErr)
+	}
+	if string(data) != "existing instructions\n" {
+		t.Fatalf("root AGENTS.md was overwritten:\n%s", string(data))
+	}
+}
+
 func TestAnalyzeAuditJSONIncludesAuditResult(t *testing.T) {
 	root := healthyProject(t)
 	called := false

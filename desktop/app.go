@@ -94,10 +94,6 @@ func (a *App) GenerateCLICommand(request backend.CLICommandRequest) (string, err
 	return a.session.GenerateCLICommand(request)
 }
 
-func (a *App) AskQuestion(request backend.AskRequest) (*backend.AskResponse, error) {
-	return a.session.AskQuestion(context.Background(), request)
-}
-
 func (a *App) ListOllamaModels() (*backend.OllamaModelsResponse, error) {
 	return a.session.ListOllamaModels(context.Background())
 }

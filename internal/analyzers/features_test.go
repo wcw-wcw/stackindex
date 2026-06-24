@@ -116,6 +116,59 @@ func TestAnalyzeFeatureMapKeepsWatchlistSeparateFromGenericSymbol(t *testing.T) 
 	}
 }
 
+func TestAnalyzeFeatureMapSuppressesGeneratedTauriSchemasAndGenericTerms(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json":                             `{"name":"devflow","scripts":{"dev":"vite --host 127.0.0.1","dev:api":"node server.js","tauri":"tauri dev"},"dependencies":{"@tauri-apps/api":"latest","vite":"latest","react":"latest"}}`,
+		"README.md":                                "# DevFlow\n\nDevFlow is a local-first developer dashboard and project tracker for coding sessions.",
+		"src/App.tsx":                              `export default function App() { return null }`,
+		"src/main.tsx":                             `import App from "./App";`,
+		"server.js":                                `import express from "express"; const app = express(); app.get("/api/projects", (_req, res) => res.json([]));`,
+		"src/lib/projects/store.ts":                `export const projects = []`,
+		"src/lib/dashboard/widgets.ts":             `export const widgets = []`,
+		"src-tauri/tauri.conf.json":                `{}`,
+		"src-tauri/Cargo.toml":                     `[package]\nname = "devflow"`,
+		"src-tauri/src/main.rs":                    `fn main() {}`,
+		"src-tauri/capabilities/default.json":      `{}`,
+		"src-tauri/gen/schemas/desktop.json":       `{}`,
+		"src-tauri/gen/schemas/window-schema.json": `{}`,
+		"scripts/check-env.mjs":                    `console.log("check")`,
+		"generated/schema/tooling.json":            `{}`,
+	})
+
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Gen", "Generated", "Schema", "Script", "Mjs", "Json"} {
+		if hasFeatureNamed(analysis.Features.Features, name) {
+			t.Fatalf("generated/generic feature %q should not be compact primary feature: %#v", name, analysis.Features.Features)
+		}
+	}
+	if !hasFeatureNamed(analysis.Features.Features, "Project") && !hasFeatureNamed(analysis.Features.Features, "Dashboard") {
+		t.Fatalf("expected a useful domain feature, got %#v", analysis.Features.Features)
+	}
+	if analysis.Features.Quality.SuppressedCount == 0 {
+		t.Fatalf("expected suppressed feature candidates, quality=%+v", analysis.Features.Quality)
+	}
+}
+
+func TestAnalyzeFeatureMapWarnsWhenOnlyGeneratedGenericCandidatesRemain(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json":                      `{"name":"tiny","scripts":{"dev":"vite"}}`,
+		"src-tauri/gen/schemas/config.json": `{}`,
+		"generated/schema/tooling.json":     `{}`,
+		"scripts/start.mjs":                 `console.log("start")`,
+	})
+
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.Features.Quality.Confidence != "low" {
+		t.Fatalf("Feature quality = %+v, want low", analysis.Features.Quality)
+	}
+}
+
 func hasAnalyzedPath(files []models.FileInfo, path string) bool {
 	for _, file := range files {
 		if file.Path == path {
