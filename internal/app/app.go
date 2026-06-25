@@ -13,12 +13,13 @@ import (
 )
 
 type AnalyzeOptions struct {
-	Path         string
-	RunAudit     bool
-	AuditOptions audit.Options
-	UseAI        bool
-	Model        string
-	AIDebug      bool
+	Path                  string
+	RunAudit              bool
+	AuditOptions          audit.Options
+	UseAI                 bool
+	Model                 string
+	AIDebug               bool
+	EnsureGeneratedIgnore bool
 }
 
 type AnalyzeResult struct {
@@ -34,6 +35,11 @@ func Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalyzeResult, error) {
 	root, err := filepath.Abs(target)
 	if err != nil {
 		return nil, err
+	}
+	if opts.EnsureGeneratedIgnore {
+		if err := report.EnsureGeneratedArtifactsIgnored(root); err != nil {
+			return nil, err
+		}
 	}
 	analysis, err := analyzers.Analyze(root)
 	if err != nil {

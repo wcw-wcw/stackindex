@@ -145,6 +145,22 @@ func TestAnalyzeAgentsMDWritesStackIndexAgentsFile(t *testing.T) {
 	}
 }
 
+func TestAnalyzeNoTUIAddsStackIndexToGitignore(t *testing.T) {
+	root := healthyProject(t)
+
+	err := analyze([]string{root, "--no-tui"}, false)
+	if err != nil {
+		t.Fatalf("analyze returned error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if !strings.Contains(string(data), ".stackindex/") {
+		t.Fatalf(".gitignore missing .stackindex entry:\n%s", string(data))
+	}
+}
+
 func TestAnalyzeAgentsMDRootDoesNotOverwriteWithoutForce(t *testing.T) {
 	root := healthyProject(t)
 	rootAgents := filepath.Join(root, "AGENTS.md")

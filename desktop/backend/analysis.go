@@ -217,10 +217,11 @@ func (s *Session) analyzeProject(ctx context.Context, request AnalyzeRequest, so
 		return nil, err
 	}
 	result, err := stackindexapp.Analyze(ctx, stackindexapp.AnalyzeOptions{
-		Path:     absPath,
-		RunAudit: request.RunAudit,
-		UseAI:    request.UseAI,
-		Model:    strings.TrimSpace(request.Model),
+		Path:                  absPath,
+		RunAudit:              request.RunAudit,
+		UseAI:                 request.UseAI,
+		Model:                 strings.TrimSpace(request.Model),
+		EnsureGeneratedIgnore: true,
 	})
 	if err != nil {
 		return nil, err

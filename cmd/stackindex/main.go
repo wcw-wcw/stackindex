@@ -239,9 +239,10 @@ func analyze(args []string, auditMode bool) error {
 			AllowMissingTests: *allowMissingTests,
 			FailOnLow:         *failOnLow,
 		},
-		UseAI:   *enableAI,
-		Model:   *model,
-		AIDebug: *aiDebug,
+		UseAI:                 *enableAI,
+		Model:                 *model,
+		AIDebug:               *aiDebug,
+		EnsureGeneratedIgnore: true,
 	})
 	if err != nil {
 		return err
