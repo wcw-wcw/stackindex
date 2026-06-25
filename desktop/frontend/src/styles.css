@@ -747,6 +747,101 @@ li {
   margin: 14px 0;
 }
 
+.file-viewer-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 14px;
+  min-height: 620px;
+}
+
+.file-picker,
+.file-preview {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+}
+
+.file-picker {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  overflow: hidden;
+}
+
+.file-picker button {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 12px;
+  background: transparent;
+  text-align: left;
+}
+
+.file-picker button:last-child {
+  border-bottom: 0;
+}
+
+.file-picker button.active {
+  background: var(--accent-soft);
+}
+
+.file-picker button span {
+  color: var(--text);
+}
+
+.file-picker button code {
+  max-height: 64px;
+  overflow: hidden;
+  padding: 5px 7px;
+  color: var(--muted);
+}
+
+.file-picker button.active code {
+  color: #ffffff;
+}
+
+.file-preview {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.file-preview-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+  border-bottom: 1px solid var(--border);
+  padding: 12px;
+}
+
+.file-preview-header h3 {
+  margin-top: 0;
+}
+
+.file-preview pre {
+  min-height: 0;
+  max-height: 560px;
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+  background: var(--code-bg);
+  color: var(--text);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.file-preview .status {
+  border-top: 1px solid var(--border);
+  margin: 0;
+  padding: 10px 12px;
+}
+
 .history-section {
   border-top: 1px solid var(--border);
   display: grid;
@@ -876,6 +971,7 @@ code {
   }
 
   .path-row,
+  .file-viewer-layout,
   .metrics,
   .summary-grid,
   .project-header,
@@ -888,6 +984,10 @@ code {
 
   .header-actions {
     align-items: flex-start;
+  }
+
+  .file-preview-header {
+    grid-template-columns: 1fr;
   }
 
   .recent-actions {

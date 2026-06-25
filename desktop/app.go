@@ -90,6 +90,10 @@ func (a *App) OpenJSONReport(request backend.PathActionRequest) error {
 	return a.session.OpenJSONReport(context.Background(), request)
 }
 
+func (a *App) ReadGeneratedFile(request backend.PathActionRequest) (*backend.ReportFileResponse, error) {
+	return a.session.ReadGeneratedFile(request)
+}
+
 func (a *App) GenerateCLICommand(request backend.CLICommandRequest) (string, error) {
 	return a.session.GenerateCLICommand(request)
 }

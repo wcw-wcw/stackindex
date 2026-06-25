@@ -15,6 +15,12 @@ type PathActionRequest struct {
 	Path string `json:"path"`
 }
 
+type ReportFileResponse struct {
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
 type CLICommandRequest struct {
 	RepoPath       string `json:"repoPath"`
 	SourceType     string `json:"sourceType,omitempty"`
@@ -68,6 +74,22 @@ func (s *Session) OpenJSONReport(ctx context.Context, request PathActionRequest)
 	return openPath(ctx, path)
 }
 
+func (s *Session) ReadGeneratedFile(request PathActionRequest) (*ReportFileResponse, error) {
+	path, err := validateGeneratedReportFile(request.Path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return &ReportFileResponse{
+		Path:    path,
+		Name:    filepath.Base(path),
+		Content: string(data),
+	}, nil
+}
+
 func (s *Session) GenerateCLICommand(request CLICommandRequest) (string, error) {
 	return buildCLICommand(request)
 }
@@ -107,6 +129,29 @@ func validateReportFile(path, extension, label string) (string, error) {
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("%s is a directory, not a file: %s", label, target)
+	}
+	return target, nil
+}
+
+func validateGeneratedReportFile(path string) (string, error) {
+	target, err := cleanActionPath(path, "generated file")
+	if err != nil {
+		return "", err
+	}
+	switch strings.ToLower(filepath.Ext(target)) {
+	case ".md", ".json":
+	default:
+		return "", fmt.Errorf("generated file must be Markdown or JSON: %s", target)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("generated file does not exist: %s", target)
+		}
+		return "", err
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("generated file is a directory: %s", target)
 	}
 	return target, nil
 }

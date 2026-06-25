@@ -54,6 +54,34 @@ func TestValidateReportFileRejectsWrongExtension(t *testing.T) {
 	}
 }
 
+func TestReadGeneratedFileReadsMarkdownAndRejectsOtherExtensions(t *testing.T) {
+	root := t.TempDir()
+	report := filepath.Join(root, ".stackindex", "reports", "repo-index.md")
+	if err := os.MkdirAll(filepath.Dir(report), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(report, []byte("# StackIndex\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := NewSession().ReadGeneratedFile(PathActionRequest{Path: report})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Name != "repo-index.md" || response.Content != "# StackIndex\n" {
+		t.Fatalf("response = %+v", response)
+	}
+
+	txt := filepath.Join(root, ".stackindex", "reports", "repo-index.txt")
+	if err := os.WriteFile(txt, []byte("nope"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewSession().ReadGeneratedFile(PathActionRequest{Path: txt})
+	if err == nil || !strings.Contains(err.Error(), "must be Markdown or JSON") {
+		t.Fatalf("expected extension error, got %v", err)
+	}
+}
+
 func TestBuildCLICommandLocalAuditAIModel(t *testing.T) {
 	command, err := buildCLICommand(CLICommandRequest{
 		RepoPath:    `/tmp/example repo`,

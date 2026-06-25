@@ -91,6 +91,12 @@ export type PathActionRequest = {
   path: string;
 };
 
+export type ReportFileResponse = {
+  path: string;
+  name: string;
+  content: string;
+};
+
 export type CLICommandRequest = {
   repoPath: string;
   sourceType?: string;
@@ -218,6 +224,7 @@ declare global {
           OpenJSONReport(request: PathActionRequest): Promise<void>;
           OpenExistingReport(path: string): Promise<AnalyzeResponse>;
           OpenMarkdownReport(request: PathActionRequest): Promise<void>;
+          ReadGeneratedFile(request: PathActionRequest): Promise<ReportFileResponse>;
           RevealProjectFolder(request: PathActionRequest): Promise<void>;
           RevealSnapshotFolder(request: PathActionRequest): Promise<void>;
           RevealStackIndexFolder(request: PathActionRequest): Promise<void>;
@@ -299,6 +306,10 @@ export function openMarkdownReport(request: PathActionRequest) {
 
 export function openJSONReport(request: PathActionRequest) {
   return backend().OpenJSONReport(request);
+}
+
+export function readGeneratedFile(request: PathActionRequest) {
+  return backend().ReadGeneratedFile(request);
 }
 
 export function generateCLICommand(request: CLICommandRequest) {

@@ -4,6 +4,7 @@ import {
   generateCLICommand,
   openJSONReport,
   openMarkdownReport,
+  readGeneratedFile,
   revealProjectFolder,
   revealSnapshotFolder,
   revealStackIndexFolder,
@@ -50,6 +51,7 @@ export function ReportWorkspace({ result, onRunAgain, onOpenSettings }: { result
           {activeSection === 'routes' && <Routes result={result} />}
           {activeSection === 'tests' && <Tests result={result} />}
           {activeSection === 'ai' && <AINotes result={result} />}
+          {activeSection === 'files' && <GeneratedFiles result={result} />}
           {activeSection === 'reports' && <Reports result={result} />}
         </article>
       </div>
@@ -159,6 +161,98 @@ function Tests({ result }: { result: AnalyzeResponse }) {
       <ListBlock title="Test files" items={tests.testFiles} empty="No test files detected." />
     </>
   );
+}
+
+type GeneratedFileKey = 'compact' | 'full' | 'json';
+
+function GeneratedFiles({ result }: { result: AnalyzeResponse }) {
+  const files = generatedFiles(result);
+  const [selected, setSelected] = useState<GeneratedFileKey>('compact');
+  const [loadedPath, setLoadedPath] = useState('');
+  const [content, setContent] = useState('');
+  const [status, setStatus] = useState('Select a generated file to preview.');
+  const [error, setError] = useState('');
+
+  const selectedFile = files.find((item) => item.key === selected) ?? files[0];
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setError('');
+      setStatus(`Loading ${selectedFile.label}...`);
+      try {
+        const response = await readGeneratedFile({ path: selectedFile.path });
+        if (cancelled) {
+          return;
+        }
+        setLoadedPath(response.path);
+        setContent(response.content);
+        setStatus(`${response.name} loaded.`);
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        setLoadedPath(selectedFile.path);
+        setContent('');
+        setError(errorMessage(err));
+        setStatus(`Could not load ${selectedFile.label}.`);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, selectedFile.label, selectedFile.path]);
+
+  return (
+    <>
+      <SectionHeader title="Generated Files" subtitle="Preview the local artifacts StackIndex wrote for this repository." />
+      <div className="file-viewer-layout">
+        <div className="file-picker" role="tablist" aria-label="Generated files">
+          {files.map((file) => (
+            <button
+              key={file.key}
+              type="button"
+              className={selected === file.key ? 'active' : ''}
+              onClick={() => setSelected(file.key)}
+            >
+              <span>{file.label}</span>
+              <code>{file.path}</code>
+            </button>
+          ))}
+        </div>
+        <div className="file-preview">
+          <div className="file-preview-header">
+            <div>
+              <h3>{selectedFile.label}</h3>
+              <code>{loadedPath || selectedFile.path}</code>
+            </div>
+            <button type="button" className="secondary compact" onClick={() => openGeneratedFile(selectedFile)}>
+              Open externally
+            </button>
+          </div>
+          {error ? <p className="error">{error}</p> : <pre>{content}</pre>}
+          <p className="status">{status}</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function generatedFiles(result: AnalyzeResponse): { key: GeneratedFileKey; label: string; path: string }[] {
+  return [
+    { key: 'compact', label: 'Compact index', path: result.reports.markdownPath },
+    { key: 'full', label: 'Full index', path: result.reports.fullMarkdownPath },
+    { key: 'json', label: 'Analysis JSON', path: result.reports.jsonPath },
+  ];
+}
+
+async function openGeneratedFile(file: { path: string }) {
+  if (file.path.toLowerCase().endsWith('.json')) {
+    await openJSONReport({ path: file.path });
+    return;
+  }
+  await openMarkdownReport({ path: file.path });
 }
 
 function AINotes({ result }: { result: AnalyzeResponse }) {
