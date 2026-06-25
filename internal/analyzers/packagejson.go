@@ -26,6 +26,9 @@ func AnalyzePackage(root string, files []models.FileInfo) (*models.PackageInfo, 
 		if filepath.Base(file.Path) != "package.json" {
 			continue
 		}
+		if isGeneratedPackageJSONPath(file.Path) {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path)))
 		if err != nil {
 			return nil, nil, err
@@ -96,21 +99,56 @@ func PackageFindings(info *models.PackageInfo) []models.Finding {
 	if info.Scripts == nil {
 		info.Scripts = map[string]string{}
 	}
-	if _, ok := info.Scripts["build"]; !ok && looksBuildableJS(info) {
+	if !hasScriptIntent(info, "build") && looksBuildableJS(info) {
 		findings = append(findings, models.Finding{Severity: models.SeverityMedium, Category: "package", Message: "No build script found.", File: "package.json", Recommendation: "Add a build script if this project needs a production bundle."})
 	}
-	if _, ok := info.Scripts["test"]; !ok && hasAnyDep(info, "vitest", "jest", "@playwright/test") {
+	if !hasScriptIntent(info, "test") && hasAnyDep(info, "vitest", "jest", "@playwright/test") {
 		findings = append(findings, models.Finding{Severity: models.SeverityLow, Category: "tests", Message: "Test tooling is installed, but no test script was found.", File: "package.json", Recommendation: "Add a test script that runs the configured test framework."})
 	}
-	if _, ok := info.Scripts["lint"]; !ok && hasAnyDep(info, "eslint", "typescript") {
+	if !hasScriptIntent(info, "lint") && hasAnyDep(info, "eslint", "typescript") {
 		findings = append(findings, models.Finding{Severity: models.SeverityLow, Category: "package", Message: "No lint script found.", File: "package.json", Recommendation: "Add a lint script for local and CI readiness."})
 	}
 	if hasAnyDep(info, "express", "fastify", "koa") {
-		if _, ok := info.Scripts["start"]; !ok {
+		if !hasScriptIntent(info, "start") && !hasBackendDevScript(info) {
 			findings = append(findings, models.Finding{Severity: models.SeverityMedium, Category: "package", Message: "Backend dependencies detected, but no start script was found.", File: "package.json", Recommendation: "Add a production start script."})
 		}
 	}
 	return findings
+}
+
+func isGeneratedPackageJSONPath(path string) bool {
+	lower := strings.ToLower(filepath.ToSlash(path))
+	return strings.Contains(lower, "wailsjs/runtime/package.json") ||
+		strings.Contains(lower, "/generated/") ||
+		strings.Contains(lower, "/gen/")
+}
+
+func hasScriptIntent(info *models.PackageInfo, intent string) bool {
+	if info == nil {
+		return false
+	}
+	intent = strings.ToLower(intent)
+	for name := range info.Scripts {
+		lower := strings.ToLower(name)
+		if lower == intent || strings.HasSuffix(lower, ":"+intent) || strings.Contains(lower, "/"+intent) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBackendDevScript(info *models.PackageInfo) bool {
+	if info == nil {
+		return false
+	}
+	for name, command := range info.Scripts {
+		lower := strings.ToLower(name + " " + command)
+		if (strings.Contains(lower, "dev:api") || strings.Contains(lower, "backend") || strings.Contains(lower, "server")) &&
+			(strings.Contains(lower, "server.js") || strings.Contains(lower, "server.mjs") || strings.Contains(lower, "app.js") || strings.Contains(lower, "app.mjs")) {
+			return true
+		}
+	}
+	return false
 }
 
 func ParsePackageJSON(data []byte) (*models.PackageInfo, error) {

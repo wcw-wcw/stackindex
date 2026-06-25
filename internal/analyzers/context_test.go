@@ -233,6 +233,94 @@ A Twitter-style social app with posts, reposts, follows, followers, timeline vie
 	}
 }
 
+func TestAnalyzeProjectContextInfersSpecificLocalProjectTaxonomy(t *testing.T) {
+	cases := []struct {
+		name    string
+		files   map[string]string
+		purpose string
+	}{
+		{
+			name: "reddit scraper",
+			files: map[string]string{
+				"README.md":    "# RSlashScrape\n\nA Reddit/subreddit scraper for collecting posts from r/all and target subreddits.",
+				"package.json": `{"name":"rslashscrape","description":"Subreddit scraper"}`,
+			},
+			purpose: "Reddit/subreddit scraper",
+		},
+		{
+			name: "riot tracker",
+			files: map[string]string{
+				"README.md":    "# RGTracker\n\nRiot League of Legends and Valorant stats tracker for summoner match history.",
+				"package.json": `{"name":"rgtracker","description":"Riot stats tracker"}`,
+			},
+			purpose: "Riot/League/Valorant stats tracker",
+		},
+		{
+			name: "opgg dashboard",
+			files: map[string]string{
+				"README.md":    "# OPGG\n\nAn OP.GG-style stats dashboard for League ranked stats and match history.",
+				"package.json": `{"name":"opgg","description":"OP.GG-style stats dashboard"}`,
+			},
+			purpose: "OP.GG-style stats dashboard",
+		},
+		{
+			name: "sorting visualizer",
+			files: map[string]string{
+				"README.md": "# Algo\n\nSorting visualizer for bubble sort, merge sort, and quick sort algorithms.",
+			},
+			purpose: "Sorting visualizer",
+		},
+		{
+			name: "face desktop",
+			files: map[string]string{
+				"README.md": "# DFGen\n\nFace-swap / face detection desktop app using OpenCV face landmarks.",
+			},
+			purpose: "Face-swap / face detection desktop app",
+		},
+		{
+			name: "card game",
+			files: map[string]string{
+				"README.md": "# Slay The Spire MVP\n\nSlay-the-Spire-like card game with deckbuilder combat, relics, and encounters.",
+			},
+			purpose: "Slay-the-Spire-like card game",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := tempProject(t, tc.files)
+			analysis, err := Analyze(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if analysis.Context.Purpose != tc.purpose {
+				t.Fatalf("Purpose = %q, want %q; context=%+v", analysis.Context.Purpose, tc.purpose, analysis.Context)
+			}
+		})
+	}
+}
+
+func TestAnalyzeProjectContextDoesNotMisclassifyRedditOrRiotAsTwitterSocial(t *testing.T) {
+	for _, files := range []map[string]string{
+		{
+			"README.md":    "# Reddit Posts Exporter\n\nScrape subreddit posts and profiles for local analysis.",
+			"package.json": `{"name":"reddit-posts","description":"Reddit post scraper"}`,
+		},
+		{
+			"README.md":    "# Riot Profiles\n\nLeague profiles, posts, and match history for Riot players.",
+			"package.json": `{"name":"riot-profiles","description":"League player stats"}`,
+		},
+	} {
+		root := tempProject(t, files)
+		analysis, err := Analyze(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if analysis.Context.Purpose == "Twitter-style social application" {
+			t.Fatalf("misclassified as Twitter-style social: %+v", analysis.Context)
+		}
+	}
+}
+
 func TestAnalyzeProjectContextUnknownFallback(t *testing.T) {
 	root := tempProject(t, map[string]string{
 		"README.md": "# Utilities\n\nA collection of small helpers.",
@@ -378,6 +466,33 @@ func TestAnalyzeStructureMapDetectsTauriAndRootServerRoles(t *testing.T) {
 	}
 }
 
+func TestAnalyzeStructureMapDetectsRojoRobloxRoles(t *testing.T) {
+	files := []models.FileInfo{
+		{Path: "default.project.json", Kind: models.FileKindConfig},
+		{Path: "src/client/controllers/CombatController.luau", Kind: models.FileKindSource, Language: "Luau"},
+		{Path: "src/server/services/MatchService.luau", Kind: models.FileKindSource, Language: "Luau"},
+		{Path: "src/shared/remotes/CombatRemotes.luau", Kind: models.FileKindSource, Language: "Luau"},
+	}
+	structure := AnalyzeStructureMap(files, nil)
+	for _, want := range []struct {
+		path string
+		role string
+	}{
+		{"src/client/", "Roblox client code"},
+		{"src/client/controllers/", "Roblox client controllers"},
+		{"src/server/", "Roblox server code"},
+		{"src/server/services/", "Roblox server services"},
+		{"src/shared/", "Roblox shared definitions/remotes/config"},
+	} {
+		if !hasDirectoryRole(structure.Directories, want.path, want.role) {
+			t.Fatalf("missing Roblox directory role %+v from %+v", want, structure.Directories)
+		}
+	}
+	if !hasFileRole(structure.KeyFiles, "default.project.json", "Rojo project config") {
+		t.Fatalf("missing Rojo key file role: %+v", structure.KeyFiles)
+	}
+}
+
 func TestAnalyzeDetectsRootServerFromPackageScriptsAndFileConnections(t *testing.T) {
 	root := tempProject(t, map[string]string{
 		"package.json": `{"name":"local-api","scripts":{"dev:api":"node server.js","start":"node server.js"},"dependencies":{"express":"latest","vite":"latest","react":"latest"}}`,
@@ -411,6 +526,36 @@ func TestAnalyzePackageExtractsPackageDescription(t *testing.T) {
 	}
 	if info.Description != "Demo app" {
 		t.Fatalf("Description = %q", info.Description)
+	}
+}
+
+func TestAnalyzePackageIsMonorepoAndWailsRuntimeAware(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json":                                  `{"name":"root","scripts":{"frontend:build":"npm --prefix frontend run build","backend:start":"node backend/server.js"},"dependencies":{"express":"latest","vite":"latest"}}`,
+		"desktop/frontend/package.json":                 `{"scripts":{"build":"vite build","test":"vitest"},"dependencies":{"vite":"latest"},"devDependencies":{"vitest":"latest"}}`,
+		"desktop/frontend/wailsjs/runtime/package.json": `{"name":"generated-runtime","scripts":{},"dependencies":{"left-pad":"latest"}}`,
+		"go.mod": `module example.com/app`,
+	})
+	files := []models.FileInfo{
+		{Path: "package.json", Kind: models.FileKindConfig},
+		{Path: "desktop/frontend/package.json", Kind: models.FileKindConfig},
+		{Path: "desktop/frontend/wailsjs/runtime/package.json", Kind: models.FileKindConfig},
+		{Path: "go.mod", Kind: models.FileKindConfig},
+	}
+	info, findings, err := AnalyzePackage(root, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info == nil || info.Name != "root" || info.ModuleName != "example.com/app" {
+		t.Fatalf("unexpected package info: %+v", info)
+	}
+	if _, ok := info.Dependencies["left-pad"]; ok {
+		t.Fatalf("generated Wails runtime package metadata should be ignored: %+v", info.Dependencies)
+	}
+	for _, finding := range findings {
+		if strings.Contains(finding.Message, "No build script") || strings.Contains(finding.Message, "no start script") {
+			t.Fatalf("monorepo-prefixed scripts should avoid warning, findings=%+v", findings)
+		}
 	}
 }
 

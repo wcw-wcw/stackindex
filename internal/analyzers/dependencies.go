@@ -330,6 +330,7 @@ type aliasResolver struct {
 	baseURL      string
 	paths        map[string][]string
 	hasSrc       bool
+	hasRootDirs  bool
 	configLoaded bool
 }
 
@@ -345,7 +346,9 @@ func loadAliasResolver(root string, files []models.FileInfo) aliasResolver {
 	for _, file := range files {
 		if file.Path == "src" || strings.HasPrefix(file.Path, "src/") {
 			resolver.hasSrc = true
-			break
+		}
+		if hasRootAliasDirectory(file.Path) {
+			resolver.hasRootDirs = true
 		}
 	}
 	for _, name := range []string{"tsconfig.json", "jsconfig.json"} {
@@ -371,14 +374,34 @@ func loadAliasResolver(root string, files []models.FileInfo) aliasResolver {
 		break
 	}
 	if resolver.hasSrc {
-		if len(resolver.paths["@/*"]) == 0 {
-			resolver.paths["@/*"] = []string{"src/*"}
-		}
+		resolver.paths["@/*"] = appendAliasFallback(resolver.paths["@/*"], "src/*")
 		if len(resolver.paths["~/*"]) == 0 {
 			resolver.paths["~/*"] = []string{"src/*"}
 		}
 	}
+	if resolver.hasRootDirs {
+		resolver.paths["@/*"] = appendAliasFallback(resolver.paths["@/*"], "*")
+	}
 	return resolver
+}
+
+func hasRootAliasDirectory(path string) bool {
+	lower := strings.ToLower(filepath.ToSlash(path))
+	for _, dir := range []string{"app/", "components/", "data/", "lib/"} {
+		if strings.HasPrefix(lower, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+func appendAliasFallback(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func fileByPath(files []models.FileInfo, path string) (models.FileInfo, bool) {

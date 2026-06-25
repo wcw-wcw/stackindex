@@ -169,6 +169,101 @@ func TestAnalyzeFeatureMapWarnsWhenOnlyGeneratedGenericCandidatesRemain(t *testi
 	}
 }
 
+func TestAnalyzeFeatureMapPrefersMountedRouteDomainsOverActions(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json": `{"name":"social","dependencies":{"express":"latest"}}`,
+		"backend/server.js": `
+const posts = require("./routes/posts");
+const users = require("./routes/users");
+const notifications = require("./routes/notifications");
+const search = require("./routes/search");
+const hashtags = require("./routes/hashtags");
+app.use("/api/posts", posts);
+app.use("/api/users", users);
+app.use("/api/notifications", notifications);
+app.use("/api/search", search);
+app.use("/api/hashtags", hashtags);
+`,
+		"backend/routes/posts.js":         `router.get("/all", h); router.post("/:id/read", h); router.post("/:id/repost", h);`,
+		"backend/routes/users.js":         `router.get("/:id/followers", h); router.post("/:id/follow", h);`,
+		"backend/routes/notifications.js": `router.get("/count", h);`,
+		"backend/routes/search.js":        `router.get("/", h);`,
+		"backend/routes/hashtags.js":      `router.get("/:tag", h);`,
+	})
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Posts", "Users", "Notifications", "Search", "Hashtags"} {
+		if !hasFeatureNamed(analysis.Features.Features, want) {
+			t.Fatalf("missing domain feature %q from %#v", want, analysis.Features.Features)
+		}
+	}
+	for _, noisy := range []string{"All", "Count", "Read", "Follow", "Following", "Follower", "Id"} {
+		if hasFeatureNamed(analysis.Features.Features, noisy) {
+			t.Fatalf("action/generic feature %q should not dominate: %#v", noisy, analysis.Features.Features)
+		}
+	}
+}
+
+func TestAnalyzeFeatureMapSuppressesFastAPIPathParams(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"README.md":           "# BoardArena\n\nConnect Four game sessions with AI move generation.",
+		"backend/app/main.py": `from routes.games import router; app.include_router(router, prefix="/api")`,
+		"backend/app/routes/games.py": `from fastapi import APIRouter
+router = APIRouter(prefix="/games")
+@router.post("/{game_id}/moves/human")
+def human_move(game_id: str): return {}`,
+		"frontend/src/App.tsx": `export default function GameBoard() { return null }`,
+	})
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasFeatureNamed(analysis.Features.Features, "Games") || !hasFeatureNamed(analysis.Features.Features, "AI moves") {
+		t.Fatalf("expected game route features: %#v", analysis.Features.Features)
+	}
+	for _, noisy := range []string{"Game", "Game_id", "Id", "Human"} {
+		if hasFeatureNamed(analysis.Features.Features, noisy) {
+			t.Fatalf("path-param/action feature %q should not appear: %#v", noisy, analysis.Features.Features)
+		}
+	}
+}
+
+func TestAnalyzeFeatureMapDetectsRobloxGameplaySystems(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"README.md":            "# BladeRivals\n\nRoblox melee arena combat with abilities, movement, HUD, remotes, and weapon definitions.",
+		"default.project.json": `{}`,
+		"src/client/controllers/CombatController.luau":   `return {}`,
+		"src/client/controllers/HUDController.luau":      `return {}`,
+		"src/client/controllers/MovementController.luau": `return {}`,
+		"src/client/Viewmodel.luau":                      `return {}`,
+		"src/server/services/MatchFlowService.luau":      `return {}`,
+		"src/server/services/TrainingDummyService.luau":  `return {}`,
+		"src/shared/remotes/CombatRemotes.luau":          `return {}`,
+		"src/shared/weapons/WeaponDefinitions.luau":      `return {}`,
+		"src/shared/effects/HitEffects.luau":             `return {}`,
+		"src/server/services/InventoryService.luau":      `return {}`,
+		"src/server/services/LobbyService.luau":          `return {}`,
+		"src/server/services/ArenaService.luau":          `return {}`,
+	})
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Combat", "Movement", "HUD", "Viewmodel", "Match flow", "Training dummy", "Remotes", "Weapon definitions"} {
+		if !hasFeatureNamed(analysis.Features.Features, want) {
+			t.Fatalf("missing Roblox feature %q from %#v", want, analysis.Features.Features)
+		}
+	}
+	if !contains(analysis.Stack.Languages, "Luau") || !contains(analysis.Stack.Frameworks, "Rojo") || !contains(analysis.Stack.Frameworks, "Roblox") {
+		t.Fatalf("missing Luau/Rojo stack detection: %+v", analysis.Stack)
+	}
+	if analysis.Context.Purpose != "Roblox melee arena" {
+		t.Fatalf("Purpose = %q, want Roblox melee arena", analysis.Context.Purpose)
+	}
+}
+
 func hasAnalyzedPath(files []models.FileInfo, path string) bool {
 	for _, file := range files {
 		if file.Path == path {

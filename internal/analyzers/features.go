@@ -18,17 +18,22 @@ const (
 var featureStopTerms = map[string]bool{
 	"api": true, "app": true, "src": true, "lib": true, "page": true, "route": true, "layout": true, "components": true,
 	"component": true, "config": true, "utils": true, "util": true, "test": true, "tests": true, "spec": true, "types": true,
-	"type": true, "index": true, "new": true, "edit": true, "settings": true, "setting": true,
+	"type": true, "index": true, "new": true, "edit": true, "settings": true, "setting": true, "main": true, "service": true, "services": true,
+	"client": true, "server": true,
 }
 
 var genericRouteTerms = map[string]bool{
-	"id": true, "slug": true, "symbol": true, "name": true, "key": true, "type": true,
+	"id": true, "slug": true, "symbol": true, "name": true, "key": true, "type": true, "all": true, "count": true, "read": true,
+	"follow": true, "following": true, "follower": true, "followers": true, "game": true, "game_id": true, "main": true, "service": true,
+	"move": true, "moves": true, "human": true,
 }
 
 var lowValueFeatureTerms = map[string]bool{
 	"mjs": true, "js": true, "jsx": true, "ts": true, "tsx": true, "json": true,
 	"script": true, "scripts": true, "gen": true, "generated": true, "schema": true, "schemas": true, "config": true,
 	"start": true, "stop": true, "status": true, "verify": true, "validate": true, "setting": true, "settings": true,
+	"all": true, "count": true, "read": true, "follow": true, "following": true, "follower": true, "followers": true, "service": true, "services": true, "main": true,
+	"move": true, "moves": true, "human": true, "client": true, "server": true,
 }
 
 type featureWork struct {
@@ -103,8 +108,9 @@ func buildFeatureClusters(files []models.FileInfo, routes []models.RouteInfo) ([
 			quality.GeneratedCount++
 			continue
 		}
-		work.score += featureTermBoost(work.term)
-		if len(work.paths)+len(work.routes) < 2 || work.score < 4 {
+		boost := featureTermBoost(work.term)
+		work.score += boost
+		if (len(work.paths)+len(work.routes) < 2 && boost < 25) || work.score < 4 {
 			continue
 		}
 		works = append(works, work)
@@ -165,6 +171,10 @@ func featureTermBoost(term string) int {
 	switch term {
 	case "watchlist":
 		return 30
+	case "post", "user", "profile", "search", "hashtag", "game", "ai-move", "backend-service", "frontend-game-ui":
+		return 25
+	case "combat", "ability", "match-flow", "movement", "hud", "viewmodel", "effect", "inventory", "lobby", "arena", "training-dummy", "remote", "weapon-definition":
+		return 25
 	case "rule", "alert", "market", "notification", "worker", "auth":
 		return 20
 	case "symbol-level":
@@ -198,11 +208,12 @@ func featureTermsForPath(path string) []string {
 		return nil
 	}
 	var terms []string
+	terms = append(terms, domainFeatureTermsForPath(lower)...)
 	if strings.Contains(lower, "symbol-level") {
 		terms = append(terms, "symbol-level")
 	}
 	parts := strings.FieldsFunc(lower, func(r rune) bool {
-		return r == '/' || r == '-' || r == '_' || r == '.' || r == '[' || r == ']'
+		return r == '/' || r == '-' || r == '_' || r == '.' || r == '[' || r == ']' || r == '{' || r == '}'
 	})
 	for i, part := range parts {
 		part = normalizeFeatureTerm(part)
@@ -245,8 +256,9 @@ func isFeatureNoisePath(path string) bool {
 func featureTermsForRoute(route models.RouteInfo) []string {
 	var terms []string
 	pathTerms := featureTermsForPath(route.SourceFile)
+	terms = append(terms, routeFeatureTerms(route.Path)...)
 	for _, part := range strings.FieldsFunc(strings.ToLower(route.Path), func(r rune) bool {
-		return r == '/' || r == '-' || r == '_' || r == ':' || r == '[' || r == ']'
+		return r == '/' || r == '-' || r == '_' || r == ':' || r == '[' || r == ']' || r == '{' || r == '}'
 	}) {
 		part = normalizeFeatureTerm(part)
 		if part == "" || featureStopTerms[part] {
@@ -273,6 +285,7 @@ func hasRouteTermDomainEvidence(term, sourcePath string, pathTerms []string) boo
 
 func normalizeFeatureTerm(term string) string {
 	term = strings.TrimSpace(strings.ToLower(term))
+	term = strings.Trim(term, "{}:")
 	term = strings.TrimSuffix(term, "ies") + map[bool]string{true: "y", false: ""}[strings.HasSuffix(term, "ies")]
 	if strings.HasSuffix(term, "s") && len(term) > 4 {
 		term = strings.TrimSuffix(term, "s")
@@ -297,8 +310,119 @@ func isGeneratedFeaturePath(path string) bool {
 		strings.Contains(lower, "/schema/") && strings.Contains(lower, "generated")
 }
 
+func domainFeatureTermsForPath(path string) []string {
+	var terms []string
+	rules := []struct {
+		term  string
+		parts []string
+		luau  bool
+	}{
+		{"auth", []string{"auth", "login", "logout", "session", "sessions"}, false},
+		{"post", []string{"post", "posts", "repost", "reposts", "timeline"}, false},
+		{"user", []string{"user", "users", "account", "accounts"}, false},
+		{"profile", []string{"profile", "profiles"}, false},
+		{"notification", []string{"notification", "notifications"}, false},
+		{"search", []string{"search"}, false},
+		{"hashtag", []string{"hashtag", "hashtags"}, false},
+		{"game", []string{"game", "games", "match", "matches"}, false},
+		{"ai-move", []string{"ai-move", "ai-moves"}, false},
+		{"backend-service", []string{"service", "services"}, false},
+		{"frontend-game-ui", []string{"board", "canvas", "game-ui", "gameui"}, false},
+		{"combat", []string{"combat", "attack", "damage", "hitbox", "parry", "block"}, true},
+		{"ability", []string{"ability", "abilities", "skill", "skills"}, true},
+		{"match-flow", []string{"matchflow", "match-flow", "round", "rounds", "match", "matches"}, true},
+		{"movement", []string{"movement", "dash", "sprint", "jump", "motor"}, true},
+		{"hud", []string{"hud", "healthbar", "crosshair", "ui"}, true},
+		{"viewmodel", []string{"viewmodel", "view-model", "camera", "arms"}, true},
+		{"effect", []string{"effect", "effects", "vfx", "particle", "particles"}, true},
+		{"inventory", []string{"inventory", "loadout", "backpack"}, true},
+		{"lobby", []string{"lobby", "queue", "queues"}, true},
+		{"arena", []string{"arena", "arenas", "map", "maps"}, true},
+		{"training-dummy", []string{"training", "dummy", "dummies"}, true},
+		{"remote", []string{"remote", "remotes", "remoteevent", "remotefunction"}, true},
+		{"weapon-definition", []string{"weapon", "weapons", "sword", "blade", "definitions", "definition"}, true},
+	}
+	for _, rule := range rules {
+		if rule.luau && !isLuauPath(path) {
+			continue
+		}
+		for _, part := range rule.parts {
+			if domainPathPartMatches(path, part, rule.luau) {
+				terms = append(terms, rule.term)
+				break
+			}
+		}
+	}
+	if strings.Contains(path, "src/server/services/") || strings.Contains(path, "/services/") {
+		terms = append(terms, "backend-service")
+	}
+	if strings.Contains(path, "src/client/controllers/") {
+		terms = append(terms, "frontend-game-ui")
+	}
+	return terms
+}
+
+func domainPathPartMatches(path, part string, allowShortSubstring bool) bool {
+	if pathContainsFeatureToken(path, part) {
+		return true
+	}
+	return (len(part) >= 5 || allowShortSubstring && len(part) >= 3) && strings.Contains(path, part)
+}
+
+func isLuauPath(path string) bool {
+	return strings.HasSuffix(strings.ToLower(filepath.ToSlash(path)), ".luau")
+}
+
+func routeFeatureTerms(path string) []string {
+	lower := strings.ToLower(path)
+	var terms []string
+	for _, rule := range []struct {
+		term  string
+		parts []string
+	}{
+		{"auth", []string{"auth", "login", "logout", "session"}},
+		{"post", []string{"posts", "post", "reposts", "timeline"}},
+		{"user", []string{"users", "user"}},
+		{"profile", []string{"profiles", "profile"}},
+		{"notification", []string{"notifications", "notification"}},
+		{"search", []string{"search"}},
+		{"hashtag", []string{"hashtags", "hashtag"}},
+		{"game", []string{"games", "game"}},
+		{"ai-move", []string{"ai", "moves/human", "moves/ai", "move"}},
+	} {
+		for _, part := range rule.parts {
+			if pathContainsFeatureToken(lower, part) || strings.Contains(part, "/") && strings.Contains(lower, part) {
+				terms = append(terms, rule.term)
+				break
+			}
+		}
+	}
+	return terms
+}
+
+func pathContainsFeatureToken(path, token string) bool {
+	path = strings.ToLower(filepath.ToSlash(path))
+	token = strings.ToLower(token)
+	if strings.Contains(token, "/") {
+		return strings.Contains(path, token)
+	}
+	parts := strings.FieldsFunc(path, func(r rune) bool {
+		return r == '/' || r == '-' || r == '_' || r == '.' || r == '[' || r == ']' || r == '{' || r == '}' || r == ':'
+	})
+	for _, part := range parts {
+		if part == token {
+			return true
+		}
+	}
+	return false
+}
+
 func hasStrongDomainInPath(path string) bool {
-	for _, term := range []string{"worker", "auth", "rule", "rules", "alert", "notification", "deployment", "deploy", "market", "watchlist", "tauri"} {
+	for _, term := range []string{
+		"worker", "auth", "rule", "rules", "alert", "notification", "deployment", "deploy", "market", "watchlist", "tauri",
+		"post", "posts", "user", "users", "profile", "profiles", "search", "hashtag", "hashtags", "game", "games",
+		"combat", "ability", "abilities", "movement", "hud", "viewmodel", "effect", "inventory", "lobby", "arena", "remote", "weapon",
+	} {
 		if strings.Contains(path, term) {
 			return true
 		}
@@ -424,6 +548,50 @@ func featureDisplayName(term string) string {
 		return "Worker"
 	case "auth":
 		return "Auth"
+	case "post":
+		return "Posts"
+	case "user":
+		return "Users"
+	case "profile":
+		return "Users / profiles"
+	case "search":
+		return "Search"
+	case "hashtag":
+		return "Hashtags"
+	case "game":
+		return "Games"
+	case "ai-move":
+		return "AI moves"
+	case "backend-service":
+		return "Backend services"
+	case "frontend-game-ui":
+		return "Frontend game UI"
+	case "combat":
+		return "Combat"
+	case "ability":
+		return "Abilities"
+	case "match-flow":
+		return "Match flow"
+	case "movement":
+		return "Movement"
+	case "hud":
+		return "HUD"
+	case "viewmodel":
+		return "Viewmodel"
+	case "effect":
+		return "Effects"
+	case "inventory":
+		return "Inventory"
+	case "lobby":
+		return "Lobby"
+	case "arena":
+		return "Arena"
+	case "training-dummy":
+		return "Training dummy"
+	case "remote":
+		return "Remotes"
+	case "weapon-definition":
+		return "Weapon definitions"
 	case "symbol-level":
 		return "Symbol levels"
 	default:
@@ -448,6 +616,50 @@ func featureSearchTerms(term string) []string {
 		terms = append(terms, "tick", "job", "cron", "queue")
 	case "auth":
 		terms = append(terms, "session", "cookie", "login", "logout")
+	case "post":
+		terms = append(terms, "posts", "post", "timeline", "repost", "reply")
+	case "user":
+		terms = append(terms, "users", "user", "account", "profile")
+	case "profile":
+		terms = append(terms, "profiles", "profile", "users", "bio")
+	case "search":
+		terms = append(terms, "search", "query", "results")
+	case "hashtag":
+		terms = append(terms, "hashtags", "hashtag", "tag")
+	case "game":
+		terms = append(terms, "games", "game", "match", "moves")
+	case "ai-move":
+		terms = append(terms, "ai", "move", "moves", "human")
+	case "backend-service":
+		terms = append(terms, "service", "services", "backend")
+	case "frontend-game-ui":
+		terms = append(terms, "frontend", "board", "ui", "game")
+	case "combat":
+		terms = append(terms, "attack", "damage", "hitbox", "parry")
+	case "ability":
+		terms = append(terms, "abilities", "skill", "cooldown")
+	case "match-flow":
+		terms = append(terms, "match", "round", "spawn", "victory")
+	case "movement":
+		terms = append(terms, "dash", "sprint", "jump", "controller")
+	case "hud":
+		terms = append(terms, "health", "crosshair", "bar", "ui")
+	case "viewmodel":
+		terms = append(terms, "camera", "arms", "viewmodel")
+	case "effect":
+		terms = append(terms, "effects", "vfx", "particles")
+	case "inventory":
+		terms = append(terms, "loadout", "backpack", "items")
+	case "lobby":
+		terms = append(terms, "queue", "spawn", "menu")
+	case "arena":
+		terms = append(terms, "map", "arena", "bounds")
+	case "training-dummy":
+		terms = append(terms, "training", "dummy", "target")
+	case "remote":
+		terms = append(terms, "remotes", "remoteevent", "remote", "network")
+	case "weapon-definition":
+		terms = append(terms, "weapon", "weapons", "definition", "sword")
 	case "symbol-level":
 		terms = append(terms, "symbol", "symbols", "levels", "targets")
 	}

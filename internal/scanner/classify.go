@@ -29,7 +29,7 @@ func Classify(path string) (string, models.FileKind) {
 	}
 
 	switch ext {
-	case ".go", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".rs", ".java", ".rb", ".php":
+	case ".go", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".rs", ".luau", ".java", ".rb", ".php":
 		return languageForExt(ext), models.FileKindSource
 	case ".json", ".yaml", ".yml", ".toml", ".env", ".sql", ".prisma":
 		return languageForExt(ext), models.FileKindConfig
@@ -46,6 +46,8 @@ func languageForExt(ext string) string {
 		return "Go"
 	case ".rs":
 		return "Rust"
+	case ".luau":
+		return "Luau"
 	case ".py":
 		return "Python"
 	case ".js", ".mjs", ".cjs":

@@ -68,6 +68,7 @@ func markdown(a *models.Analysis, full bool) string {
 
 	writeIndexQuality(&b, a)
 	writeFeatureMapQuality(&b, a)
+	writeSmallProjectGuidance(&b, a)
 	writeProjectContext(&b, a)
 	writeFeatureMap(&b, a, full)
 	writeTaskSearchRecipes(&b, a)
@@ -126,6 +127,17 @@ func writeFeatureMapQuality(b *strings.Builder, a *models.Analysis) {
 	fmt.Fprintln(b, "- Feature map confidence: low")
 	fmt.Fprintf(b, "- Reason: %s\n", reason)
 	fmt.Fprintln(b, "- Start with Agent Search Guide and Key Files before broad searches.")
+	fmt.Fprintln(b)
+}
+
+func writeSmallProjectGuidance(b *strings.Builder, a *models.Analysis) {
+	if len(a.Files) > 30 || a.Features.Quality.Confidence != "low" {
+		return
+	}
+	fmt.Fprintf(b, "## Small Project Guidance\n\n")
+	fmt.Fprintln(b, "- Read README, package metadata, and the main entrypoint first.")
+	fmt.Fprintln(b, "- Broad search is acceptable after checking Key Files.")
+	fmt.Fprintln(b, "- Use `repo-index.full.md` only if the compact index is not enough.")
 	fmt.Fprintln(b)
 }
 

@@ -11,6 +11,14 @@ import (
 )
 
 var expressRoutePattern = regexp.MustCompile(`\b(?:app|router)\.(get|post|put|patch|delete|head|options|all)\(\s*["']([^"']+)["']`)
+var expressRequirePattern = regexp.MustCompile(`(?m)\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*require\(\s*["']([^"']+)["']\s*\)`)
+var expressImportPattern = regexp.MustCompile(`(?m)\bimport\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+["']([^"']+)["']`)
+var expressUseVarPattern = regexp.MustCompile(`\bapp\.use\(\s*["']([^"']+)["']\s*,\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)`)
+var expressUseRequirePattern = regexp.MustCompile(`\bapp\.use\(\s*["']([^"']+)["']\s*,\s*require\(\s*["']([^"']+)["']\s*\)\s*\)`)
+var fastAPIRouterPrefixPattern = regexp.MustCompile(`\bAPIRouter\s*\([^)]*prefix\s*=\s*["']([^"']+)["']`)
+var fastAPIDecoratorPattern = regexp.MustCompile(`(?m)@\s*(?:router|app)\.(get|post|put|patch|delete|head|options)\(\s*["']([^"']*)["']`)
+var fastAPIIncludeRouterPattern = regexp.MustCompile(`\bapp\.include_router\(\s*([A-Za-z_$][A-Za-z0-9_$\.]*)\s*(?:,\s*prefix\s*=\s*["']([^"']+)["'])?`)
+var pythonImportRouterPattern = regexp.MustCompile(`(?m)\bfrom\s+([A-Za-z0-9_\.]+)\s+import\s+([A-Za-z_$][A-Za-z0-9_$]*)`)
 var nextRouteMethodPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)\bexport\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s*\(`),
 	regexp.MustCompile(`(?m)\bexport\s+const\s+(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s*=`),
@@ -19,6 +27,8 @@ var nextRouteMethodPatterns = []*regexp.Regexp{
 
 func AnalyzeRoutes(root string, files []models.FileInfo) []models.RouteInfo {
 	var routes []models.RouteInfo
+	expressMounts := detectExpressMounts(root, files)
+	fastAPIMounts := detectFastAPIMounts(root, files)
 	for _, file := range files {
 		if file.Kind != models.FileKindSource {
 			continue
@@ -40,7 +50,14 @@ func AnalyzeRoutes(root string, files []models.FileInfo) []models.RouteInfo {
 		if isLocalAPIScript(file.Path) {
 			routes = append(routes, localAPIScriptRoute(file.Path))
 		}
-		routes = append(routes, ExtractExpressRoutes(string(data), file.Path)...)
+		if isJavaScriptRouteSource(file.Path) {
+			expressRoutes := ExtractExpressRoutes(string(data), file.Path)
+			if prefix := expressMounts[file.Path]; prefix != "" {
+				expressRoutes = withRoutePrefix(expressRoutes, prefix)
+			}
+			routes = append(routes, expressRoutes...)
+		}
+		routes = append(routes, ExtractFastAPIRoutes(string(data), file.Path, fastAPIMounts[file.Path])...)
 	}
 	sort.Slice(routes, func(i, j int) bool {
 		if routes[i].Path == routes[j].Path {
@@ -51,12 +68,162 @@ func AnalyzeRoutes(root string, files []models.FileInfo) []models.RouteInfo {
 	return dedupeRoutes(routes)
 }
 
+func isJavaScriptRouteSource(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".js", ".mjs", ".cjs", ".ts":
+		return true
+	default:
+		return false
+	}
+}
+
+func detectExpressMounts(root string, files []models.FileInfo) map[string]string {
+	mounts := map[string]string{}
+	for _, file := range files {
+		if file.Kind != models.FileKindSource {
+			continue
+		}
+		lower := strings.ToLower(filepath.ToSlash(file.Path))
+		base := filepath.Base(lower)
+		if base != "server.js" && base != "server.mjs" && base != "app.js" && base != "app.mjs" && base != "index.js" && base != "index.mjs" && !strings.HasSuffix(lower, "/server.js") && !strings.HasSuffix(lower, "/app.js") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path)))
+		if err != nil {
+			continue
+		}
+		content := string(data)
+		imports := map[string]string{}
+		for _, match := range expressRequirePattern.FindAllStringSubmatch(content, -1) {
+			imports[match[1]] = match[2]
+		}
+		for _, match := range expressImportPattern.FindAllStringSubmatch(content, -1) {
+			imports[match[1]] = match[2]
+		}
+		for _, match := range expressUseRequirePattern.FindAllStringSubmatch(content, -1) {
+			if target, ok := resolveMountedRoutePath(file.Path, match[2], files); ok {
+				mounts[target] = cleanRoutePath(match[1])
+			}
+		}
+		for _, match := range expressUseVarPattern.FindAllStringSubmatch(content, -1) {
+			if importPath := imports[match[2]]; importPath != "" {
+				if target, ok := resolveMountedRoutePath(file.Path, importPath, files); ok {
+					mounts[target] = cleanRoutePath(match[1])
+				}
+			}
+		}
+	}
+	return mounts
+}
+
+func resolveMountedRoutePath(from, importPath string, files []models.FileInfo) (string, bool) {
+	if !strings.HasPrefix(importPath, ".") {
+		return "", false
+	}
+	baseDir := filepath.ToSlash(filepath.Dir(from))
+	cleaned := filepath.ToSlash(filepath.Clean(filepath.Join(baseDir, importPath)))
+	exts := []string{"", ".js", ".mjs", ".ts", ".cjs", "/index.js", "/index.mjs", "/index.ts"}
+	fileSet := map[string]bool{}
+	for _, file := range files {
+		fileSet[file.Path] = true
+	}
+	for _, ext := range exts {
+		candidate := cleaned + ext
+		if fileSet[candidate] {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func withRoutePrefix(routes []models.RouteInfo, prefix string) []models.RouteInfo {
+	if prefix == "" {
+		return routes
+	}
+	out := make([]models.RouteInfo, 0, len(routes))
+	for _, route := range routes {
+		route.Path = joinRoutePaths(prefix, route.Path)
+		if route.Note == "" {
+			route.Note = "Mounted Express router."
+		}
+		out = append(out, route)
+	}
+	return out
+}
+
 func ExtractExpressRoutes(content, source string) []models.RouteInfo {
 	var routes []models.RouteInfo
 	for _, match := range expressRoutePattern.FindAllStringSubmatch(content, -1) {
 		routes = append(routes, models.RouteInfo{Method: strings.ToUpper(match[1]), Path: match[2], SourceFile: source, Confidence: "medium"})
 	}
 	return routes
+}
+
+func ExtractFastAPIRoutes(content, source, mountPrefix string) []models.RouteInfo {
+	prefix := mountPrefix
+	if match := fastAPIRouterPrefixPattern.FindStringSubmatch(content); match != nil {
+		prefix = joinRoutePaths(prefix, match[1])
+	}
+	var routes []models.RouteInfo
+	for _, match := range fastAPIDecoratorPattern.FindAllStringSubmatch(content, -1) {
+		routes = append(routes, models.RouteInfo{
+			Method:     strings.ToUpper(match[1]),
+			Path:       joinRoutePaths(prefix, match[2]),
+			SourceFile: source,
+			Confidence: "medium",
+			Note:       "FastAPI route decorator.",
+		})
+	}
+	return routes
+}
+
+func detectFastAPIMounts(root string, files []models.FileInfo) map[string]string {
+	mounts := map[string]string{}
+	for _, file := range files {
+		if file.Kind != models.FileKindSource || strings.ToLower(filepath.Ext(file.Path)) != ".py" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path)))
+		if err != nil {
+			continue
+		}
+		content := string(data)
+		if !strings.Contains(content, "include_router") {
+			continue
+		}
+		imports := map[string]string{}
+		for _, match := range pythonImportRouterPattern.FindAllStringSubmatch(content, -1) {
+			imports[match[2]] = strings.ReplaceAll(match[1], ".", "/")
+		}
+		for _, match := range fastAPIIncludeRouterPattern.FindAllStringSubmatch(content, -1) {
+			name := strings.TrimSuffix(match[1], ".router")
+			prefix := cleanRoutePath(match[2])
+			if module := imports[name]; module != "" {
+				if target, ok := resolvePythonModulePath(file.Path, module, files); ok {
+					mounts[target] = prefix
+				}
+			}
+		}
+	}
+	return mounts
+}
+
+func resolvePythonModulePath(from, module string, files []models.FileInfo) (string, bool) {
+	baseDir := filepath.ToSlash(filepath.Dir(from))
+	candidates := []string{
+		filepath.ToSlash(filepath.Join(baseDir, module+".py")),
+		filepath.ToSlash(filepath.Join(module + ".py")),
+	}
+	fileSet := map[string]bool{}
+	for _, file := range files {
+		fileSet[file.Path] = true
+	}
+	for _, candidate := range candidates {
+		if fileSet[candidate] {
+			return candidate, true
+		}
+	}
+	return "", false
 }
 
 func nextAppRoute(path, content string) []models.RouteInfo {
@@ -160,6 +327,35 @@ func localAPIScriptRoute(path string) models.RouteInfo {
 		Confidence: "low",
 		Note:       "Local API/server script detected by filename.",
 	}
+}
+
+func joinRoutePaths(parts ...string) string {
+	var cleaned []string
+	for _, part := range parts {
+		part = cleanRoutePath(part)
+		if part == "" || part == "/" {
+			continue
+		}
+		cleaned = append(cleaned, strings.Trim(part, "/"))
+	}
+	if len(cleaned) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(cleaned, "/")
+}
+
+func cleanRoutePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if len(path) > 1 {
+		path = strings.TrimRight(path, "/")
+	}
+	return path
 }
 
 func dedupeRoutes(in []models.RouteInfo) []models.RouteInfo {

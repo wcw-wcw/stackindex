@@ -39,6 +39,13 @@ type scoredPurpose struct {
 }
 
 var purposeRules = []purposeRule{
+	{purpose: "Roblox melee arena", fallback: "Roblox melee arena", terms: []string{"roblox", "rojo", "luau", "melee arena", "arena combat", "blade rivals", "bladerivals", "combat", "abilities", "weapon definitions", "remotes", "humanoid"}},
+	{purpose: "Reddit/subreddit scraper", fallback: "Reddit/subreddit scraper", terms: []string{"reddit", "subreddit", "subreddits", "rslash", "r/", "praw", "scrape reddit", "reddit scraper", "subreddit scraper", "scraper"}},
+	{purpose: "OP.GG-style stats dashboard", fallback: "OP.GG-style stats dashboard", terms: []string{"op.gg", "opgg", "op gg", "op.gg-style", "opgg-style", "stats dashboard", "league stats", "ranked stats", "summoner dashboard", "match history dashboard"}},
+	{purpose: "Riot/League/Valorant stats tracker", fallback: "Riot/League/Valorant stats tracker", terms: []string{"riot", "league of legends", "valorant", "summoner", "match history", "riot api", "league tracker", "valorant tracker", "rgtracker", "ranked tracker"}},
+	{purpose: "Sorting visualizer", fallback: "Sorting visualizer", terms: []string{"sorting visualizer", "sort visualizer", "algorithm visualizer", "sorting algorithms", "bubble sort", "quick sort", "merge sort"}},
+	{purpose: "Face-swap / face detection desktop app", fallback: "Face-swap / face detection desktop app", terms: []string{"face swap", "faceswap", "face-swap", "face detection", "opencv", "dfgen", "desktop face", "face landmark", "face landmarks"}},
+	{purpose: "Slay-the-Spire-like card game", fallback: "Slay-the-Spire-like card game", terms: []string{"slay the spire", "slay-the-spire", "slay", "spire", "deckbuilder", "deck-building", "card game", "relic", "relics", "encounter", "encounters", "turn-based card"}},
 	{purpose: "Local-first developer dashboard", fallback: "Developer dashboard", terms: []string{"devflow", "developer dashboard", "developer-dashboard", "local-first developer", "local-first dashboard", "development dashboard", "project tracker", "task tracker", "local-first project tracker", "agent workspace", "developer workflow", "workflow dashboard", "coding session", "coding sessions"}},
 	{purpose: "Tauri desktop app", fallback: "Desktop productivity app", terms: []string{"tauri", "desktop app", "desktop application", "desktop productivity", "local desktop", "system tray", "native desktop"}},
 	{purpose: "Assessment/education application", fallback: "Assessment-taking web application", terms: []string{"assessment", "assessments", "quiz", "quizzes", "teacher", "student", "students", "submission", "submissions", "score", "scores", "grading", "grade", "multiple-choice", "multiple choice"}},
@@ -221,10 +228,17 @@ func inferPurpose(context models.ProjectContext, structure models.StructureMap, 
 	readmeSignals := []string{context.ReadmeTitle, context.ReadmeSummary}
 	packageSignals := []string{context.PackageName, context.PackageDescription}
 	supportSignals := purposeSupportSignalText(context, structure, pkg, stack, routes)
+	primaryText := strings.ToLower(strings.Join(append(readmeSignals, packageSignals...), " "))
+	if strings.Contains(primaryText, "op.gg") || strings.Contains(primaryText, "opgg") || strings.Contains(primaryText, "op gg") {
+		return "OP.GG-style stats dashboard", "high", purposeEvidence("OP.GG-style stats dashboard", context, structure, routes, 8)
+	}
 	var best scoredPurpose
 	bestPurpose := "Unknown project purpose"
 	for _, rule := range purposeRules {
-		if rule.purpose == "Portfolio/personal site" && !explicitPortfolioText(strings.ToLower(strings.Join(append(readmeSignals, packageSignals...), " "))) {
+		if rule.purpose == "Portfolio/personal site" && !explicitPortfolioText(primaryText) {
+			continue
+		}
+		if rule.purpose == "Twitter-style social application" && blocksTwitterStylePurpose(primaryText) {
 			continue
 		}
 		readmeScore := weightedPurposeScore(readmeSignals, rule.terms, 4)
@@ -341,6 +355,20 @@ func purposeSupportSignalText(context models.ProjectContext, structure models.St
 func genericPurposeFromReadme(context models.ProjectContext, stack models.StackInfo) string {
 	text := strings.ToLower(context.ReadmeTitle + " " + context.ReadmeSummary + " " + context.PackageDescription)
 	switch {
+	case strings.Contains(text, "reddit") || strings.Contains(text, "subreddit") || strings.Contains(text, "rslash"):
+		return "Reddit/subreddit scraper"
+	case strings.Contains(text, "op.gg") || strings.Contains(text, "opgg"):
+		return "OP.GG-style stats dashboard"
+	case strings.Contains(text, "riot") || strings.Contains(text, "league of legends") || strings.Contains(text, "valorant"):
+		return "Riot/League/Valorant stats tracker"
+	case strings.Contains(text, "sorting visualizer") || strings.Contains(text, "algorithm visualizer"):
+		return "Sorting visualizer"
+	case strings.Contains(text, "face swap") || strings.Contains(text, "face detection") || strings.Contains(text, "dfgen"):
+		return "Face-swap / face detection desktop app"
+	case strings.Contains(text, "slay the spire") || strings.Contains(text, "deckbuilder") || strings.Contains(text, "card game"):
+		return "Slay-the-Spire-like card game"
+	case strings.Contains(text, "roblox") || strings.Contains(text, "rojo") || strings.Contains(text, "luau"):
+		return "Roblox melee arena"
 	case strings.Contains(text, "developer dashboard") || strings.Contains(text, "devflow") || strings.Contains(text, "project tracker"):
 		if strings.Contains(text, "local-first") {
 			return "Local-first developer dashboard"
@@ -361,6 +389,15 @@ func genericPurposeFromReadme(context models.ProjectContext, stack models.StackI
 	default:
 		return ""
 	}
+}
+
+func blocksTwitterStylePurpose(text string) bool {
+	for _, term := range []string{"reddit", "subreddit", "rslash", "riot", "league of legends", "valorant", "op.gg", "opgg"} {
+		if strings.Contains(text, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func explicitPortfolioText(text string) bool {
@@ -399,10 +436,10 @@ func routeDomainTerms(routes []models.RouteInfo) []string {
 	var terms []string
 	for _, route := range routes {
 		for _, part := range strings.FieldsFunc(route.Path, func(r rune) bool {
-			return r == '/' || r == '-' || r == '_' || r == ':' || r == '[' || r == ']'
+			return r == '/' || r == '-' || r == '_' || r == ':' || r == '[' || r == ']' || r == '{' || r == '}'
 		}) {
 			part = strings.TrimSpace(strings.ToLower(part))
-			if part == "" || part == "api" || seen[part] {
+			if part == "" || part == "api" || genericRouteTerms[part] || seen[part] {
 				continue
 			}
 			seen[part] = true
@@ -446,7 +483,11 @@ func AnalyzeStructureMap(files []models.FileInfo, routes []models.RouteInfo) mod
 
 func detectDirectoryRoles(files []models.FileInfo) []models.DirectoryRole {
 	counts := map[string]int{}
+	robloxProject := false
 	for _, file := range files {
+		if file.Language == "Luau" || strings.EqualFold(file.Path, "default.project.json") || strings.HasSuffix(strings.ToLower(file.Path), ".project.json") {
+			robloxProject = true
+		}
 		if isRootLocalServer(file.Path) {
 			counts["./"]++
 		}
@@ -456,6 +497,9 @@ func detectDirectoryRoles(files []models.FileInfo) []models.DirectoryRole {
 	}
 	var roles []models.DirectoryRole
 	for _, rule := range directoryRoleRules() {
+		if isRobloxDirectoryRole(rule.path) && !robloxProject {
+			continue
+		}
 		if count := counts[rule.path]; count > 0 {
 			roles = append(roles, models.DirectoryRole{Path: rule.path, Role: rule.role, Evidence: []string{rule.evidence}, FileCount: count})
 		}
@@ -467,6 +511,15 @@ func detectDirectoryRoles(files []models.FileInfo) []models.DirectoryRole {
 		return roleImportance(roles[i].Path) > roleImportance(roles[j].Path)
 	})
 	return capDirectoryRoles(roles, directoryRoleLimit)
+}
+
+func isRobloxDirectoryRole(path string) bool {
+	switch path {
+	case "src/client/", "src/client/controllers/", "src/server/", "src/server/services/", "src/shared/":
+		return true
+	default:
+		return false
+	}
 }
 
 type directoryRule struct {
@@ -510,6 +563,11 @@ func directoryRoleRules() []directoryRule {
 		{"src-tauri/", "Tauri desktop application shell", "Tauri source/config directory detected."},
 		{"src-tauri/src/", "Tauri/Rust backend code", "Tauri Rust source directory detected."},
 		{"src-tauri/capabilities/", "Tauri permissions/config", "Tauri capabilities directory detected."},
+		{"src/client/", "Roblox client code", "Rojo/Luau client source directory detected."},
+		{"src/client/controllers/", "Roblox client controllers", "Client controller directory detected."},
+		{"src/server/", "Roblox server code", "Rojo/Luau server source directory detected."},
+		{"src/server/services/", "Roblox server services", "Server services directory detected."},
+		{"src/shared/", "Roblox shared definitions/remotes/config", "Shared Luau source directory detected."},
 	}
 }
 
@@ -528,7 +586,7 @@ func directoryAncestors(path string) []string {
 
 func roleImportance(path string) int {
 	switch path {
-	case "./", "src-tauri/src/", "src-tauri/", "src/app/api/", "cmd/", "internal/", "src/lib/", "backend/", "backend/app/", "backend/app/api/", "backend/routes/", "frontend/", "frontend/src/", "api/", "database/migrations/", "db/migrations/", "migrations/":
+	case "./", "src-tauri/src/", "src-tauri/", "src/client/", "src/server/", "src/shared/", "src/server/services/", "src/client/controllers/", "src/app/api/", "cmd/", "internal/", "src/lib/", "backend/", "backend/app/", "backend/app/api/", "backend/routes/", "frontend/", "frontend/src/", "api/", "database/migrations/", "db/migrations/", "migrations/":
 		return 3
 	case "src-tauri/capabilities/", "src/", "src/app/", "scripts/", "database/", "db/", "src/components/":
 		return 2
@@ -602,6 +660,10 @@ func keyFileRole(file models.FileInfo, routeFiles map[string]models.RouteInfo) (
 	case file.Path == "src-tauri/Cargo.toml" || file.Path == "src-tauri/cargo.toml":
 		role.Role = "Tauri/Rust package manifest"
 		role.Evidence = []string{"Cargo manifest under src-tauri."}
+		role.Importance = "high"
+	case file.Path == "default.project.json" || strings.HasSuffix(lower, ".project.json"):
+		role.Role = "Rojo project config"
+		role.Evidence = []string{"Rojo project mapping file detected."}
 		role.Importance = "high"
 	case file.Path == "tsconfig.json":
 		role.Role = "TypeScript config"

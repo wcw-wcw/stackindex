@@ -147,6 +147,37 @@ func TestAnalyzeDependencyGraphDoesNotCallViteProjectStaticOnlyWhenAPIFilesExist
 	}
 }
 
+func TestAnalyzeDependencyGraphFallsBackToRootAliasForNextAppDirs(t *testing.T) {
+	root := tempProject(t, map[string]string{
+		"package.json":          `{"name":"folio","dependencies":{"next":"latest","react":"latest"}}`,
+		"app/page.tsx":          `import Card from "@/components/Card"; import { projects } from "@/data/projects"; export default function Page() { return <Card items={projects} /> }`,
+		"components/Card.tsx":   `export default function Card() { return null }`,
+		"data/projects.ts":      `export const projects = []`,
+		"lib/format.ts":         `export const format = (value: string) => value`,
+		"app/projects/page.tsx": `import { format } from "@/lib/format"; export default function Projects() { return format("x") }`,
+		"tsconfig.json":         `{"compilerOptions":{"baseUrl":"."}}`,
+	})
+	analysis, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct {
+		from string
+		to   string
+	}{
+		{"app/page.tsx", "components/Card.tsx"},
+		{"app/page.tsx", "data/projects.ts"},
+		{"app/projects/page.tsx", "lib/format.ts"},
+	} {
+		if !hasDependencyEdge(analysis.Dependencies.Edges, want.from, want.to, "internal") {
+			t.Fatalf("missing root alias edge %+v from %#v", want, analysis.Dependencies.Edges)
+		}
+	}
+	if analysis.Quality.UnresolvedAliasImports != 0 {
+		t.Fatalf("unexpected unresolved alias imports: %#v", analysis.Dependencies.UnresolvedImports)
+	}
+}
+
 func hasDependencyEdge(edges []models.DependencyEdge, from, to, kind string) bool {
 	for _, edge := range edges {
 		if edge.From == from && edge.To == to && edge.Kind == kind {

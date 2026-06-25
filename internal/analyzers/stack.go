@@ -12,7 +12,7 @@ func DetectStack(root string, files []models.FileInfo, pkg *models.PackageInfo) 
 	var stack models.StackInfo
 	for _, file := range files {
 		switch file.Language {
-		case "Go", "JavaScript", "TypeScript", "TSX", "JSX", "Python", "Rust":
+		case "Go", "JavaScript", "TypeScript", "TSX", "JSX", "Python", "Rust", "Luau":
 			stack.Languages = appendUnique(stack.Languages, normalizeLanguage(file.Language))
 		}
 		lowerPath := strings.ToLower(filepath.ToSlash(file.Path))
@@ -29,6 +29,14 @@ func DetectStack(root string, files []models.FileInfo, pkg *models.PackageInfo) 
 		if lowerPath == "src-tauri/cargo.toml" {
 			stack.Frameworks = appendUnique(stack.Frameworks, "Tauri")
 			stack.Languages = appendUnique(stack.Languages, "Rust")
+		}
+		if lowerPath == "default.project.json" || strings.HasSuffix(lowerPath, ".project.json") {
+			stack.Frameworks = appendUnique(stack.Frameworks, "Rojo")
+			stack.Frameworks = appendUnique(stack.Frameworks, "Roblox")
+		}
+		if file.Language == "Luau" {
+			stack.Languages = appendUnique(stack.Languages, "Luau")
+			stack.Frameworks = appendUnique(stack.Frameworks, "Roblox")
 		}
 		switch lowerPath {
 		case "vercel.json":
